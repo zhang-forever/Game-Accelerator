@@ -1,0 +1,48 @@
+name: Release
+
+# Build the release exe + MSI installer and publish them to GitHub Releases
+# whenever a version tag (e.g. v1.0.0) is pushed.
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build release binary
+        run: cargo build --release
+
+      - name: Install cargo-wix
+        run: cargo install cargo-wix --version 0.3.* --locked
+
+      - name: Build MSI installer
+        run: cargo wix --nocapture --no-build
+
+      - name: Collect artifacts
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item target/release/game-accelerator.exe dist/
+          Copy-Item target/wix/*.msi dist/
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/game-accelerator.exe
+            dist/*.msi
+          generate_release_notes: true

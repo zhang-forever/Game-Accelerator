@@ -1,0 +1,22 @@
+# Rust build artifacts
+/target
+
+# Binaries and debug symbols
+*.exe
+*.pdb
+*.dll
+
+# Local development config (not for distribution)
+/.cargo
+/.claude
+CLAUDE.md
+
+# WiX installer intermediate files
+*.wixobj
+*.wixpdb
+/dist
+
+# OS files
+Thumbs.db
+desktop.ini
+.DS_Store

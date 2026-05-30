@@ -1,12 +1,12 @@
-pub mod process_manager;
-pub mod process_category;
-pub mod elevation;
-pub mod memory_cleaner;
-pub mod power_manager;
-pub mod gpu_manager;
-pub mod game_mode;
 pub mod cpu_optimizer;
 pub mod disk_optimizer;
+pub mod elevation;
+pub mod game_mode;
+pub mod gpu_manager;
+pub mod memory_cleaner;
+pub mod power_manager;
+pub mod process_category;
+pub mod process_manager;
 pub mod win_encoding;
 
 use serde::{Deserialize, Serialize};
@@ -21,10 +21,7 @@ pub struct BoostResult {
     pub errors: Vec<String>,
 }
 
-pub fn run_boost(
-    config: &crate::config::AppConfig,
-    game_process: Option<&str>,
-) -> BoostResult {
+pub fn run_boost(config: &crate::config::AppConfig, game_process: Option<&str>) -> BoostResult {
     let mut result = BoostResult::default();
 
     // 1. Kill background processes

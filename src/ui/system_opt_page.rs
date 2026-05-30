@@ -1,6 +1,6 @@
+use super::{theme, widgets};
 use crate::app::GameAcceleratorApp;
 use crate::core::{cpu_optimizer, disk_optimizer, game_mode, power_manager};
-use super::{theme, widgets};
 
 pub fn show(app: &mut GameAcceleratorApp, ui: &mut egui::Ui) {
     ui.horizontal(|ui| {
@@ -65,8 +65,7 @@ pub fn show(app: &mut GameAcceleratorApp, ui: &mut egui::Ui) {
                 on,
             ) {
                 let res = if on {
-                    power_manager::set_balanced()
-                        .map(|_| "✓ 已切换回平衡电源模式".to_string())
+                    power_manager::set_balanced().map(|_| "✓ 已切换回平衡电源模式".to_string())
                 } else {
                     power_manager::set_high_performance()
                         .map(|_| "✓ 已切换到高性能电源模式".to_string())
@@ -182,7 +181,11 @@ pub fn show(app: &mut GameAcceleratorApp, ui: &mut egui::Ui) {
                     ui.label(
                         egui::RichText::new(if paused { "已暂停" } else { "运行中" })
                             .size(12.0)
-                            .color(if paused { theme::SUCCESS } else { theme::TEXT_DIM }),
+                            .color(if paused {
+                                theme::SUCCESS
+                            } else {
+                                theme::TEXT_DIM
+                            }),
                     );
                 });
             });

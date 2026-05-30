@@ -21,11 +21,24 @@ impl Default for AppConfig {
         let mut whitelist = HashSet::new();
         // System-critical processes that must never be killed
         for name in &[
-            "System", "Registry", "smss.exe", "csrss.exe", "wininit.exe",
-            "winlogon.exe", "services.exe", "lsass.exe", "svchost.exe",
-            "dwm.exe", "explorer.exe", "fontdrvhost.exe", "SearchHost.exe",
-            "sihost.exe", "taskhostw.exe", "RuntimeBroker.exe",
-            "game-accelerator.exe", "Game Accelerator",
+            "System",
+            "Registry",
+            "smss.exe",
+            "csrss.exe",
+            "wininit.exe",
+            "winlogon.exe",
+            "services.exe",
+            "lsass.exe",
+            "svchost.exe",
+            "dwm.exe",
+            "explorer.exe",
+            "fontdrvhost.exe",
+            "SearchHost.exe",
+            "sihost.exe",
+            "taskhostw.exe",
+            "RuntimeBroker.exe",
+            "game-accelerator.exe",
+            "Game Accelerator",
         ] {
             whitelist.insert(name.to_string());
         }
@@ -33,19 +46,34 @@ impl Default for AppConfig {
         let mut blacklist = HashSet::new();
         // Common background processes to kill on boost
         for name in &[
-            "OneDrive.exe", "Dropbox.exe", "GoogleDriveFS.exe",
-            "AdobeARM.exe", "AdobeUpdateService.exe", "AGSService.exe",
-            "GoogleUpdate.exe", "MicrosoftEdgeUpdate.exe",
-            "Teams.exe", "ms-teams.exe",
-            "SearchApp.exe", "SearchIndexer.exe",
-            "Cortana.exe", "YourPhone.exe", "PhoneExperienceHost.exe",
-            "Widgets.exe", "WidgetService.exe",
-            "SecurityHealthService.exe", "MpCmdRun.exe",
-            "iTunesHelper.exe", "iCloudServices.exe",
-            "Spotify.exe", "Discord.exe",
-            "SkypeApp.exe", "SkypeBackgroundHost.exe",
+            "OneDrive.exe",
+            "Dropbox.exe",
+            "GoogleDriveFS.exe",
+            "AdobeARM.exe",
+            "AdobeUpdateService.exe",
+            "AGSService.exe",
+            "GoogleUpdate.exe",
+            "MicrosoftEdgeUpdate.exe",
+            "Teams.exe",
+            "ms-teams.exe",
+            "SearchApp.exe",
+            "SearchIndexer.exe",
+            "Cortana.exe",
+            "YourPhone.exe",
+            "PhoneExperienceHost.exe",
+            "Widgets.exe",
+            "WidgetService.exe",
+            "SecurityHealthService.exe",
+            "MpCmdRun.exe",
+            "iTunesHelper.exe",
+            "iCloudServices.exe",
+            "Spotify.exe",
+            "Discord.exe",
+            "SkypeApp.exe",
+            "SkypeBackgroundHost.exe",
             "GameBarPresenceWriter.exe",
-            "gamingservices.exe", "gamingservicesnet.exe",
+            "gamingservices.exe",
+            "gamingservicesnet.exe",
         ] {
             blacklist.insert(name.to_string());
         }
@@ -67,8 +95,7 @@ impl Default for AppConfig {
 
 impl AppConfig {
     fn config_path() -> PathBuf {
-        let mut path = dirs_next::config_dir()
-            .unwrap_or_else(|| PathBuf::from("."));
+        let mut path = dirs_next::config_dir().unwrap_or_else(|| PathBuf::from("."));
         path.push("GameAccelerator");
         std::fs::create_dir_all(&path).ok();
         path.push("config.toml");

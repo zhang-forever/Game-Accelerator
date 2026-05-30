@@ -1,5 +1,5 @@
-use crate::app::GameAcceleratorApp;
 use super::{theme, widgets};
+use crate::app::GameAcceleratorApp;
 
 pub fn show(app: &mut GameAcceleratorApp, ui: &mut egui::Ui) {
     ui.horizontal(|ui| {

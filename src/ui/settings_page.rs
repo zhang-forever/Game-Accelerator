@@ -1,5 +1,5 @@
-use crate::app::GameAcceleratorApp;
 use super::theme;
+use crate::app::GameAcceleratorApp;
 
 pub fn show(app: &mut GameAcceleratorApp, ui: &mut egui::Ui) {
     ui.label(
@@ -145,11 +145,7 @@ pub fn show(app: &mut GameAcceleratorApp, ui: &mut egui::Ui) {
                     .desired_width(ui.available_width());
 
                 if ui.add(text_edit).changed() {
-                    app.config.selected_game = if game.is_empty() {
-                        None
-                    } else {
-                        Some(game)
-                    };
+                    app.config.selected_game = if game.is_empty() { None } else { Some(game) };
                 }
 
                 ui.add_space(4.0);
@@ -207,10 +203,7 @@ pub fn show(app: &mut GameAcceleratorApp, ui: &mut egui::Ui) {
             ui.add_space(8.0);
 
             ui.horizontal(|ui| {
-                ui.label(
-                    egui::RichText::new("⚠️")
-                        .size(12.0)
-                );
+                ui.label(egui::RichText::new("⚠️").size(12.0));
                 ui.label(
                     egui::RichText::new("部分功能需要管理员权限才能生效")
                         .size(10.0)
@@ -232,11 +225,7 @@ fn checkbox_with_desc(ui: &mut egui::Ui, checked: &mut bool, title: &str, desc: 
                     .strong()
                     .color(theme::TEXT_PRIMARY),
             );
-            ui.label(
-                egui::RichText::new(desc)
-                    .size(10.5)
-                    .color(theme::TEXT_DIM),
-            );
+            ui.label(egui::RichText::new(desc).size(10.5).color(theme::TEXT_DIM));
         });
     });
 }

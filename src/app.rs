@@ -191,12 +191,11 @@ impl eframe::App for GameAcceleratorApp {
                         )
                     };
 
-                    let btn = egui::Button::new(
-                        egui::RichText::new(*label).size(13.0).color(text_color),
-                    )
-                    .min_size(egui::vec2(146.0, 34.0))
-                    .rounding(egui::Rounding::same(6.0))
-                    .fill(bg);
+                    let btn =
+                        egui::Button::new(egui::RichText::new(*label).size(13.0).color(text_color))
+                            .min_size(egui::vec2(146.0, 34.0))
+                            .rounding(egui::Rounding::same(6.0))
+                            .fill(bg);
 
                     if ui.add(btn).clicked() {
                         self.current_page = *page;

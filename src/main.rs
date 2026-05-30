@@ -31,18 +31,17 @@ fn setup_chinese_fonts(ctx: &egui::Context) {
 
     // Load Microsoft YaHei for Chinese support
     let font_candidates = [
-        ("C:/Windows/Fonts/msyh.ttc", 0),       // Microsoft YaHei Regular
-        ("C:/Windows/Fonts/msyhbd.ttc", 0),      // Microsoft YaHei Bold
-        ("C:/Windows/Fonts/simhei.ttf", 0),      // SimHei
+        ("C:/Windows/Fonts/msyh.ttc", 0),   // Microsoft YaHei Regular
+        ("C:/Windows/Fonts/msyhbd.ttc", 0), // Microsoft YaHei Bold
+        ("C:/Windows/Fonts/simhei.ttf", 0), // SimHei
     ];
 
     let mut loaded = false;
     for (path, _index) in &font_candidates {
         if let Ok(data) = std::fs::read(path) {
-            fonts.font_data.insert(
-                "chinese".to_owned(),
-                egui::FontData::from_owned(data),
-            );
+            fonts
+                .font_data
+                .insert("chinese".to_owned(), egui::FontData::from_owned(data));
 
             // Add as fallback for proportional font family
             if let Some(family) = fonts.families.get_mut(&egui::FontFamily::Proportional) {
@@ -84,7 +83,8 @@ fn apply_dark_theme(ctx: &egui::Context) {
     v.extreme_bg_color = egui::Color32::from_rgb(8, 8, 14);
     v.faint_bg_color = egui::Color32::from_rgb(25, 25, 38);
     v.widgets.noninteractive.bg_fill = egui::Color32::from_rgb(25, 25, 38);
-    v.widgets.noninteractive.fg_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(60, 60, 80));
+    v.widgets.noninteractive.fg_stroke =
+        egui::Stroke::new(1.0, egui::Color32::from_rgb(60, 60, 80));
     v.widgets.inactive.bg_fill = egui::Color32::from_rgb(32, 32, 48);
     v.widgets.inactive.fg_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(180, 180, 200));
     v.widgets.inactive.rounding = egui::Rounding::same(6.0);

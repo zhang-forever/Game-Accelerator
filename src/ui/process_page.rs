@@ -1,7 +1,7 @@
+use super::{theme, widgets};
 use crate::app::{GameAcceleratorApp, ProcessInfo, ProcessSort};
 use crate::core::process_category::{self, Category};
 use crate::core::process_manager;
-use super::{theme, widgets};
 
 /// Memory threshold (MB) below which a process is considered "small" and can be
 /// hidden from the advanced list. Tiny processes add noise without being worth
@@ -156,40 +156,36 @@ fn show_categories(app: &mut GameAcceleratorApp, ui: &mut egui::Ui) {
                         });
 
                         // Right-aligned action button
-                        ui.with_layout(
-                            egui::Layout::right_to_left(egui::Align::Center),
-                            |ui| {
-                                if is_system {
-                                    ui.add_enabled(
-                                        false,
-                                        egui::Button::new(
-                                            egui::RichText::new("不可关闭")
-                                                .size(12.0)
-                                                .color(theme::TEXT_DIM),
-                                        ),
-                                    );
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if is_system {
+                                ui.add_enabled(
+                                    false,
+                                    egui::Button::new(
+                                        egui::RichText::new("不可关闭")
+                                            .size(12.0)
+                                            .color(theme::TEXT_DIM),
+                                    ),
+                                );
+                            } else {
+                                let (bg, fg) = if cat.safe_to_close() {
+                                    (theme::ACCENT, egui::Color32::from_rgb(8, 10, 14))
                                 } else {
-                                    let (bg, fg) = if cat.safe_to_close() {
-                                        (theme::ACCENT, egui::Color32::from_rgb(8, 10, 14))
-                                    } else {
-                                        (
-                                            egui::Color32::from_rgb(60, 40, 40),
-                                            theme::WARNING,
-                                        )
-                                    };
-                                    let btn = egui::Button::new(
-                                        egui::RichText::new("关闭这类").size(13.0).strong().color(fg),
-                                    )
-                                    .fill(bg)
-                                    .rounding(egui::Rounding::same(6.0))
-                                    .min_size(egui::vec2(90.0, 32.0));
-                                    if ui.add(btn).clicked() {
-                                        close_request =
-                                            Some((cat, group.process_names.clone()));
-                                    }
+                                    (egui::Color32::from_rgb(60, 40, 40), theme::WARNING)
+                                };
+                                let btn = egui::Button::new(
+                                    egui::RichText::new("关闭这类")
+                                        .size(13.0)
+                                        .strong()
+                                        .color(fg),
+                                )
+                                .fill(bg)
+                                .rounding(egui::Rounding::same(6.0))
+                                .min_size(egui::vec2(90.0, 32.0));
+                                if ui.add(btn).clicked() {
+                                    close_request = Some((cat, group.process_names.clone()));
                                 }
-                            },
-                        );
+                            }
+                        });
                     });
                 });
             ui.add_space(6.0);
@@ -241,7 +237,9 @@ fn show_advanced(app: &mut GameAcceleratorApp, ui: &mut egui::Ui) {
             .rounding(egui::Rounding::same(5.0));
         if ui
             .add(hide_btn)
-            .on_hover_text("小于 50MB 的进程占用资源极少，关掉收益不大。\n隐藏它们让你专注于真正的内存大户。")
+            .on_hover_text(
+                "小于 50MB 的进程占用资源极少，关掉收益不大。\n隐藏它们让你专注于真正的内存大户。",
+            )
             .clicked()
         {
             app.process_hide_small = !app.process_hide_small;
@@ -259,11 +257,7 @@ fn show_advanced(app: &mut GameAcceleratorApp, ui: &mut egui::Ui) {
             } else {
                 format!("{} 个进程", total)
             };
-            ui.label(
-                egui::RichText::new(text)
-                    .size(12.0)
-                    .color(theme::TEXT_DIM),
-            );
+            ui.label(egui::RichText::new(text).size(12.0).color(theme::TEXT_DIM));
         });
     });
 
@@ -370,9 +364,7 @@ fn show_advanced(app: &mut GameAcceleratorApp, ui: &mut egui::Ui) {
                                 );
                             } else {
                                 let kill_btn = egui::Button::new(
-                                    egui::RichText::new("结束")
-                                        .size(11.0)
-                                        .color(theme::DANGER),
+                                    egui::RichText::new("结束").size(11.0).color(theme::DANGER),
                                 )
                                 .small()
                                 .fill(egui::Color32::from_rgb(44, 24, 24));

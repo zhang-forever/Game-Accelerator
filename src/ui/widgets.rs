@@ -79,11 +79,7 @@ pub fn stat_card(ui: &mut egui::Ui, value: &str, label: &str, sub: &str) {
                         .strong()
                         .color(theme::TEXT_PRIMARY),
                 );
-                ui.label(
-                    egui::RichText::new(sub)
-                        .size(10.0)
-                        .color(theme::TEXT_DIM),
-                );
+                ui.label(egui::RichText::new(sub).size(10.0).color(theme::TEXT_DIM));
             });
         });
 }
@@ -103,9 +99,9 @@ pub fn section_header(ui: &mut egui::Ui, title: &str) {
 
 /// Small status badge.
 pub fn status_badge(ui: &mut egui::Ui, text: &str, color: egui::Color32) {
-    let galley = ui
-        .painter()
-        .layout_no_wrap(text.to_string(), egui::FontId::proportional(10.0), color);
+    let galley =
+        ui.painter()
+            .layout_no_wrap(text.to_string(), egui::FontId::proportional(10.0), color);
     let size = galley.size();
     let pad = egui::vec2(6.0, 2.0);
     let (rect, _) = ui.allocate_exact_size(size + pad * 2.0, egui::Sense::hover());
@@ -119,8 +115,7 @@ pub fn status_badge(ui: &mut egui::Ui, text: &str, color: egui::Color32) {
 pub fn toggle_switch(ui: &mut egui::Ui, on: bool) -> bool {
     let width = 44.0;
     let height = 24.0;
-    let (rect, response) =
-        ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::click());
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::click());
 
     if ui.is_rect_visible(rect) {
         let painter = ui.painter();
@@ -153,12 +148,7 @@ pub fn toggle_switch(ui: &mut egui::Ui, on: bool) -> bool {
 
 /// A full-width settings row: title + description on the left, a toggle on the right.
 /// Returns true if the toggle was clicked.
-pub fn toggle_row(
-    ui: &mut egui::Ui,
-    title: &str,
-    description: &str,
-    on: bool,
-) -> bool {
+pub fn toggle_row(ui: &mut egui::Ui, title: &str, description: &str, on: bool) -> bool {
     let mut clicked = false;
     ui.horizontal(|ui| {
         ui.vertical(|ui| {

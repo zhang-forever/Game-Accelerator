@@ -1,7 +1,7 @@
+use crate::core::{game_mode, gpu_manager, power_manager};
 use parking_lot::Mutex;
 use std::sync::Arc;
 use sysinfo::System;
-use crate::core::{game_mode, gpu_manager, power_manager};
 
 #[derive(Clone, Debug, Default)]
 pub struct SystemStats {

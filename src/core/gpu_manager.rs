@@ -82,9 +82,7 @@ pub fn set_nvidia_max_performance() -> Result<String, String> {
     }
 
     if applied > 0 {
-        Ok(format!(
-            "✓ 已设置最大性能模式（重启电脑后生效）"
-        ))
+        Ok(format!("✓ 已设置最大性能模式（重启电脑后生效）"))
     } else {
         Err("设置失败，请用管理员身份运行本程序".to_string())
     }

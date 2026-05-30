@@ -55,11 +55,8 @@ pub fn primary_button(text: &str) -> egui::Button {
 
 /// Secondary button style
 pub fn secondary_button(text: &str) -> egui::Button {
-    egui::Button::new(
-        egui::RichText::new(text)
-            .size(13.0)
-    )
-    .fill(egui::Color32::from_rgb(55, 58, 75))
-    .rounding(egui::Rounding::same(6.0))
-    .min_size(egui::vec2(120.0, 36.0))
+    egui::Button::new(egui::RichText::new(text).size(13.0))
+        .fill(egui::Color32::from_rgb(55, 58, 75))
+        .rounding(egui::Rounding::same(6.0))
+        .min_size(egui::vec2(120.0, 36.0))
 }

@@ -93,7 +93,10 @@ pub fn kill_process_by_pid(pid: u32, name: &str) -> Result<(), String> {
             if process.kill() {
                 Ok(())
             } else {
-                Err(format!("无法关闭 {} (PID {})，可能需要管理员权限", name, pid))
+                Err(format!(
+                    "无法关闭 {} (PID {})，可能需要管理员权限",
+                    name, pid
+                ))
             }
         }
         None => Err(format!("进程 {} (PID {}) 已不存在", name, pid)),
@@ -175,7 +178,10 @@ pub fn set_process_high_priority(process_name: &str) -> Result<(), String> {
             return Err(format!("未找到进程 {}（游戏可能还没启动）", process_name));
         }
         if !set_any {
-            return Err(format!("无法提升 {} 优先级，可能需要管理员权限", process_name));
+            return Err(format!(
+                "无法提升 {} 优先级，可能需要管理员权限",
+                process_name
+            ));
         }
         Ok(())
     }

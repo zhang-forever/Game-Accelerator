@@ -1,5 +1,5 @@
-use std::process::Command;
 use crate::core::win_encoding;
+use std::process::Command;
 
 pub fn stop_windows_search_service() -> Result<(), String> {
     let output = Command::new("net")

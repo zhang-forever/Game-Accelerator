@@ -1,6 +1,6 @@
+use super::{theme, widgets};
 use crate::app::GameAcceleratorApp;
 use crate::core::gpu_manager;
-use super::{theme, widgets};
 
 pub fn show(app: &mut GameAcceleratorApp, ui: &mut egui::Ui) {
     ui.horizontal(|ui| {
@@ -152,9 +152,11 @@ pub fn show(app: &mut GameAcceleratorApp, ui: &mut egui::Ui) {
             widgets::section_header(ui, "强制游戏使用独立显卡");
 
             ui.label(
-                egui::RichText::new("笔记本默认可能用核显跑游戏。填入游戏名，强制它用更强的 GTX 1650。")
-                    .size(11.0)
-                    .color(theme::TEXT_SECONDARY),
+                egui::RichText::new(
+                    "笔记本默认可能用核显跑游戏。填入游戏名，强制它用更强的 GTX 1650。",
+                )
+                .size(11.0)
+                .color(theme::TEXT_SECONDARY),
             );
             ui.add_space(8.0);
 
@@ -171,15 +173,20 @@ pub fn show(app: &mut GameAcceleratorApp, ui: &mut egui::Ui) {
                         .desired_width(ui.available_width() - 120.0),
                 );
                 if resp.changed() {
-                    app.config.selected_game =
-                        if game_exe.is_empty() { None } else { Some(game_exe) };
+                    app.config.selected_game = if game_exe.is_empty() {
+                        None
+                    } else {
+                        Some(game_exe)
+                    };
                 }
             });
             ui.add_space(8.0);
 
             if action_button(ui, "设为独显运行").clicked() {
                 let game = app.config.selected_game.clone().unwrap_or_default();
-                app.gpu_status = Some(string_result(gpu_manager::force_discrete_gpu_for_game(&game)));
+                app.gpu_status = Some(string_result(gpu_manager::force_discrete_gpu_for_game(
+                    &game,
+                )));
                 app.config.save();
             }
         });

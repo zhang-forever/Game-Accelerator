@@ -1,12 +1,8 @@
-use std::process::Command;
 use crate::core::win_encoding;
+use std::process::Command;
 
 pub fn enable_game_mode() -> Result<(), String> {
-    set_reg_dword(
-        "HKCU\\Software\\Microsoft\\GameBar",
-        "AllowAutoGameMode",
-        1,
-    )?;
+    set_reg_dword("HKCU\\Software\\Microsoft\\GameBar", "AllowAutoGameMode", 1)?;
     set_reg_dword(
         "HKCU\\Software\\Microsoft\\GameBar",
         "AutoGameModeEnabled",
@@ -16,11 +12,7 @@ pub fn enable_game_mode() -> Result<(), String> {
 }
 
 pub fn disable_game_mode() -> Result<(), String> {
-    set_reg_dword(
-        "HKCU\\Software\\Microsoft\\GameBar",
-        "AllowAutoGameMode",
-        0,
-    )?;
+    set_reg_dword("HKCU\\Software\\Microsoft\\GameBar", "AllowAutoGameMode", 0)?;
     set_reg_dword(
         "HKCU\\Software\\Microsoft\\GameBar",
         "AutoGameModeEnabled",
@@ -30,12 +22,7 @@ pub fn disable_game_mode() -> Result<(), String> {
 }
 
 pub fn is_game_mode_enabled() -> bool {
-    get_reg_dword(
-        "HKCU\\Software\\Microsoft\\GameBar",
-        "AllowAutoGameMode",
-    )
-    .unwrap_or(0)
-        == 1
+    get_reg_dword("HKCU\\Software\\Microsoft\\GameBar", "AllowAutoGameMode").unwrap_or(0) == 1
 }
 
 pub fn toggle_game_bar(enable: bool) -> Result<(), String> {
@@ -77,9 +64,12 @@ fn set_reg_dword(key_path: &str, name: &str, value: u32) -> Result<(), String> {
         .args([
             "add",
             key_path,
-            "/v", name,
-            "/t", "REG_DWORD",
-            "/d", &value.to_string(),
+            "/v",
+            name,
+            "/t",
+            "REG_DWORD",
+            "/d",
+            &value.to_string(),
             "/f",
         ])
         .output()

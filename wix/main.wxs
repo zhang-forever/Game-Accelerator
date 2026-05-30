@@ -95,11 +95,5 @@
         <Icon Id="ProductIcon" SourceFile="$(var.CargoTargetBinDir)\game-accelerator.exe" />
         <Property Id="ARPPRODUCTICON" Value="ProductIcon" />
         <Property Id="ARPHELPLINK" Value="https://github.com/zhang-forever/Game-Accelerator" />
-
-        <!-- Install into Program Files by default; let the user change it. -->
-        <Property Id="WIXUI_INSTALLDIR" Value="APPLICATIONFOLDER" />
-
-        <UIRef Id="WixUI_InstallDir" />
-        <UIRef Id="WixUI_ErrorProgressText" />
     </Product>
 </Wix>

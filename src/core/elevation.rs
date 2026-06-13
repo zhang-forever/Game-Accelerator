@@ -23,17 +23,17 @@ pub fn elevate_if_needed() -> bool {
     }
 
     if let Ok(exe) = std::env::current_exe() {
-        let exe_path = exe.to_string_lossy().to_string();
+        let exe_path = exe.to_string_lossy();
         // Use PowerShell Start-Process with RunAs verb to trigger the UAC prompt.
-        let _ = Command::new("powershell")
+        let result = Command::new("powershell")
             .args([
                 "-WindowStyle",
                 "Hidden",
                 "-Command",
-                &format!("Start-Process -FilePath '{}' -Verb RunAs", exe_path),
+                &format!("Start-Process -FilePath '{}' -Verb RunAs", exe_path.replace('\'', "''")),
             ])
             .spawn();
-        return true;
+        return result.is_ok();
     }
     false
 }

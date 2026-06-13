@@ -28,7 +28,10 @@ fn main() {
             Ok(Box::new(GameAcceleratorApp::new(cc)))
         }),
     )
-    .unwrap();
+    .unwrap_or_else(|e| {
+        eprintln!("Fatal: failed to launch GUI: {}", e);
+        std::process::exit(1);
+    });
 }
 
 fn setup_chinese_fonts(ctx: &egui::Context) {

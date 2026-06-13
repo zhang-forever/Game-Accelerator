@@ -30,7 +30,10 @@ pub fn elevate_if_needed() -> bool {
                 "-WindowStyle",
                 "Hidden",
                 "-Command",
-                &format!("Start-Process -FilePath '{}' -Verb RunAs", exe_path.replace('\'', "''")),
+                &format!(
+                    "Start-Process -FilePath '{}' -Verb RunAs",
+                    exe_path.replace('\'', "''")
+                ),
             ])
             .spawn();
         return result.is_ok();

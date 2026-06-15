@@ -5,6 +5,11 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/zhang-forever/Game-Accelerator/stargazers"><img src="https://img.shields.io/github/stars/zhang-forever/Game-Accelerator?style=social" alt="GitHub stars"></a>
+  <a href="https://github.com/zhang-forever/Game-Accelerator/network"><img src="https://img.shields.io/github/forks/zhang-forever/Game-Accelerator?style=social" alt="GitHub forks"></a>
+</p>
+
+<p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-green.svg" alt="License: MIT"></a>
   <a href="#"><img src="https://img.shields.io/badge/platform-Windows%2010%2F11-blue.svg" alt="Platform"></a>
   <a href="#"><img src="https://img.shields.io/badge/built%20with-Rust-orange.svg" alt="Built with Rust"></a>
@@ -14,7 +19,11 @@
 </p>
 
 <p align="center">
-  English version: <a href="README.en.md">README.en.md</a>
+  <a href="README.en.md">English</a> · <a href="#-功能特性">功能</a> · <a href="#-安装与使用">安装</a> · <a href="#-从源码构建">构建</a>
+</p>
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/zhang-forever/Game-Accelerator/main/docs/screenshot.png" alt="Game Accelerator Dashboard" width="700">
 </p>
 
 ---

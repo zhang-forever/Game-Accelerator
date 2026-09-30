@@ -1,12 +1,69 @@
-use super::theme;
+use super::{icons, theme};
 
-/// Full-width gauge row: label on left, bar fills remaining space, percent on right.
-/// Designed to be used inside a vertical layout (auto-fits container width).
+pub fn page_header(ui: &mut egui::Ui, title: &str, description: &str) {
+    ui.label(
+        egui::RichText::new(title)
+            .size(26.0)
+            .strong()
+            .color(theme::TEXT_PRIMARY),
+    );
+    ui.add_space(2.0);
+    ui.label(
+        egui::RichText::new(description)
+            .size(12.5)
+            .color(theme::TEXT_SECONDARY),
+    );
+    ui.add_space(12.0);
+}
+
+pub fn section_header(ui: &mut egui::Ui, title: &str) {
+    ui.label(
+        egui::RichText::new(title)
+            .size(15.0)
+            .strong()
+            .color(theme::TEXT_PRIMARY),
+    );
+    ui.add_space(10.0);
+}
+
+pub fn notice(ui: &mut egui::Ui, message: &str, color: egui::Color32) {
+    egui::Frame::none()
+        .fill(color.gamma_multiply(0.10))
+        .rounding(egui::Rounding::same(10.0))
+        .inner_margin(egui::Margin::symmetric(14.0, 11.0))
+        .stroke(egui::Stroke::new(1.0, color.gamma_multiply(0.3)))
+        .show(ui, |ui| {
+            ui.set_min_width(ui.available_width());
+            ui.horizontal_wrapped(|ui| {
+                ui.label(
+                    egui::RichText::new(message.trim_start_matches(['✓', '⚠', ' ']))
+                        .size(12.5)
+                        .color(color),
+                );
+            });
+        });
+    ui.add_space(10.0);
+}
+
+pub fn status_badge(ui: &mut egui::Ui, text: &str, color: egui::Color32) {
+    egui::Frame::none()
+        .fill(color.gamma_multiply(0.12))
+        .rounding(egui::Rounding::same(6.0))
+        .inner_margin(egui::Margin::symmetric(8.0, 4.0))
+        .show(ui, |ui| {
+            ui.label(egui::RichText::new(text).size(11.0).color(color));
+        });
+}
+
 pub fn gauge_row(ui: &mut egui::Ui, label: &str, percent: f32) {
+    let percent = if percent.is_finite() {
+        percent.clamp(0.0, 100.0)
+    } else {
+        0.0
+    };
     ui.horizontal(|ui| {
-        // Fixed-width label column
         ui.allocate_ui_with_layout(
-            egui::vec2(46.0, 16.0),
+            egui::vec2(58.0, 20.0),
             egui::Layout::left_to_right(egui::Align::Center),
             |ui| {
                 ui.label(
@@ -16,160 +73,113 @@ pub fn gauge_row(ui: &mut egui::Ui, label: &str, percent: f32) {
                 );
             },
         );
-
-        // Percent label reserved on the right
-        let pct_text = format!("{:.0}%", percent);
-
-        // Bar fills the space between label and percent
-        let bar_h = 14.0;
-        let reserved_right = 42.0;
-        let bar_w = (ui.available_width() - reserved_right).max(40.0);
-
-        let (rect, _) = ui.allocate_exact_size(egui::vec2(bar_w, bar_h), egui::Sense::hover());
-        if ui.is_rect_visible(rect) {
-            let painter = ui.painter();
-            // Track
-            painter.rect_filled(
-                rect,
+        let width = (ui.available_width() - 54.0).max(20.0);
+        let (rect, _) = ui.allocate_exact_size(egui::vec2(width, 8.0), egui::Sense::hover());
+        ui.painter()
+            .rect_filled(rect, egui::Rounding::same(4.0), theme::SURFACE);
+        let filled = rect.width() * percent / 100.0;
+        if filled > 0.0 {
+            ui.painter().rect_filled(
+                egui::Rect::from_min_size(rect.min, egui::vec2(filled, rect.height())),
                 egui::Rounding::same(4.0),
-                egui::Color32::from_rgb(38, 40, 56),
+                theme::gauge_color(percent),
             );
-            // Fill
-            let fill_w = rect.width() * (percent / 100.0).clamp(0.0, 1.0);
-            if fill_w > 1.0 {
-                let fill_rect =
-                    egui::Rect::from_min_size(rect.min, egui::vec2(fill_w, rect.height()));
-                painter.rect_filled(
-                    fill_rect,
-                    egui::Rounding::same(4.0),
-                    theme::gauge_color(percent),
-                );
-            }
         }
-
-        ui.add_space(4.0);
         ui.label(
-            egui::RichText::new(pct_text)
+            egui::RichText::new(format!("{percent:.0}%"))
                 .size(12.0)
-                .strong()
                 .color(theme::TEXT_PRIMARY),
         );
     });
 }
 
-/// Vertical stat card. Must be called with a column ui so it lays out top-to-bottom.
-pub fn stat_card(ui: &mut egui::Ui, value: &str, label: &str, sub: &str) {
-    egui::Frame::none()
-        .fill(theme::CARD_BG)
-        .rounding(egui::Rounding::same(10.0))
-        .inner_margin(egui::Margin::same(14.0))
-        .stroke(egui::Stroke::new(1.0, theme::CARD_BORDER))
-        .show(ui, |ui| {
-            ui.vertical(|ui| {
-                ui.label(
-                    egui::RichText::new(value)
-                        .size(24.0)
-                        .strong()
-                        .color(theme::ACCENT),
-                );
-                ui.add_space(2.0);
-                ui.label(
-                    egui::RichText::new(label)
-                        .size(13.0)
-                        .strong()
-                        .color(theme::TEXT_PRIMARY),
-                );
-                ui.label(egui::RichText::new(sub).size(10.0).color(theme::TEXT_DIM));
-            });
+pub fn metric_card(
+    ui: &mut egui::Ui,
+    label: &str,
+    value: &str,
+    detail: &str,
+    percent: Option<f32>,
+    icon: icons::Icon,
+) {
+    let width = ui.available_width();
+    theme::card_frame().show(ui, |ui| {
+        ui.spacing_mut().item_spacing.y = 6.0;
+        ui.set_min_width((width - 36.0).max(10.0));
+        ui.horizontal(|ui| {
+            icons::show(ui, icon, 18.0, theme::ACCENT);
+            ui.label(
+                egui::RichText::new(label)
+                    .size(12.0)
+                    .color(theme::TEXT_SECONDARY),
+            );
         });
-}
-
-/// Section header with separator.
-pub fn section_header(ui: &mut egui::Ui, title: &str) {
-    ui.label(
-        egui::RichText::new(title)
-            .size(14.0)
-            .strong()
-            .color(theme::TEXT_PRIMARY),
-    );
-    ui.add_space(4.0);
-    ui.separator();
-    ui.add_space(8.0);
-}
-
-/// Small status badge.
-pub fn status_badge(ui: &mut egui::Ui, text: &str, color: egui::Color32) {
-    let galley =
-        ui.painter()
-            .layout_no_wrap(text.to_string(), egui::FontId::proportional(10.0), color);
-    let size = galley.size();
-    let pad = egui::vec2(6.0, 2.0);
-    let (rect, _) = ui.allocate_exact_size(size + pad * 2.0, egui::Sense::hover());
-    ui.painter()
-        .rect_filled(rect, egui::Rounding::same(3.0), color.linear_multiply(0.15));
-    ui.painter().galley(rect.left_top() + pad, galley, color);
-}
-
-/// An iOS-style toggle switch. Returns true if it was clicked this frame.
-/// `on` reflects the current state and is used to draw the knob position.
-pub fn toggle_switch(ui: &mut egui::Ui, on: bool) -> bool {
-    let width = 44.0;
-    let height = 24.0;
-    let (rect, response) = ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::click());
-
-    if ui.is_rect_visible(rect) {
-        let painter = ui.painter();
-        let radius = height / 2.0;
-
-        // Track
-        let track_color = if on {
-            theme::ACCENT
-        } else {
-            egui::Color32::from_rgb(55, 58, 75)
-        };
-        painter.rect_filled(rect, egui::Rounding::same(radius), track_color);
-
-        // Knob
-        let knob_x = if on {
-            rect.right() - radius
-        } else {
-            rect.left() + radius
-        };
-        let knob_center = egui::pos2(knob_x, rect.center().y);
-        painter.circle_filled(
-            knob_center,
-            radius - 3.0,
-            egui::Color32::from_rgb(245, 245, 250),
+        ui.add_space(2.0);
+        ui.label(
+            egui::RichText::new(value)
+                .size(28.0)
+                .strong()
+                .color(theme::TEXT_PRIMARY),
         );
-    }
+        ui.label(
+            egui::RichText::new(detail)
+                .size(11.0)
+                .color(theme::TEXT_DIM),
+        );
+        ui.add_space(4.0);
+        let (rect, _) =
+            ui.allocate_exact_size(egui::vec2(ui.available_width(), 4.0), egui::Sense::hover());
+        ui.painter()
+            .rect_filled(rect, egui::Rounding::same(2.0), theme::SURFACE);
+        if let Some(percent) = percent {
+            let width = rect.width() * (percent / 100.0).clamp(0.0, 1.0);
+            ui.painter().rect_filled(
+                egui::Rect::from_min_size(rect.min, egui::vec2(width, 4.0)),
+                egui::Rounding::same(2.0),
+                theme::ACCENT,
+            );
+        }
+    });
+}
 
+pub fn toggle_switch(ui: &mut egui::Ui, on: bool) -> bool {
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(40.0, 24.0), egui::Sense::click());
+    let on = ui.ctx().animate_bool(response.id, on);
+    let color = if on > 0.5 {
+        theme::ACCENT
+    } else {
+        theme::SURFACE_HOVER
+    };
+    ui.painter()
+        .rect_filled(rect, egui::Rounding::same(12.0), color);
+    let x = egui::lerp(rect.left() + 12.0..=rect.right() - 12.0, on);
+    ui.painter()
+        .circle_filled(egui::pos2(x, rect.center().y), 8.0, theme::TEXT_PRIMARY);
     response.clicked()
 }
 
-/// A full-width settings row: title + description on the left, a toggle on the right.
-/// Returns true if the toggle was clicked.
 pub fn toggle_row(ui: &mut egui::Ui, title: &str, description: &str, on: bool) -> bool {
     let mut clicked = false;
+    let text_width = (ui.available_width() - 142.0).max(120.0);
     ui.horizontal(|ui| {
-        ui.vertical(|ui| {
-            ui.label(
-                egui::RichText::new(title)
-                    .size(14.0)
-                    .strong()
-                    .color(theme::TEXT_PRIMARY),
-            );
-            ui.label(
-                egui::RichText::new(description)
-                    .size(11.0)
-                    .color(theme::TEXT_DIM),
-            );
-        });
+        ui.allocate_ui_with_layout(
+            egui::vec2(text_width, 48.0),
+            egui::Layout::top_down(egui::Align::Min),
+            |ui| {
+                ui.label(
+                    egui::RichText::new(title)
+                        .size(14.0)
+                        .strong()
+                        .color(theme::TEXT_PRIMARY),
+                );
+                ui.label(
+                    egui::RichText::new(description)
+                        .size(12.0)
+                        .color(theme::TEXT_SECONDARY),
+                );
+            },
+        );
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            // Status text + switch
-            if toggle_switch(ui, on) {
-                clicked = true;
-            }
-            ui.add_space(8.0);
+            clicked = toggle_switch(ui, on);
             ui.label(
                 egui::RichText::new(if on { "已开启" } else { "已关闭" })
                     .size(12.0)
@@ -180,7 +190,6 @@ pub fn toggle_row(ui: &mut egui::Ui, title: &str, description: &str, on: bool) -
     clicked
 }
 
-/// Missing or unreadable preferences must not look like a measured "off" state.
 pub fn setting_row(
     ui: &mut egui::Ui,
     title: &str,
@@ -191,31 +200,26 @@ pub fn setting_row(
         return toggle_row(ui, title, description, on).then_some(!on);
     }
     let mut choice = None;
-    ui.vertical(|ui| {
-        ui.label(
-            egui::RichText::new(title)
-                .size(14.0)
-                .strong()
-                .color(theme::TEXT_PRIMARY),
-        );
-        ui.label(
-            egui::RichText::new(description)
-                .size(11.0)
-                .color(theme::TEXT_DIM),
-        );
-        ui.horizontal(|ui| {
-            ui.label(
-                egui::RichText::new("系统默认或状态未知")
-                    .size(11.0)
-                    .color(theme::TEXT_SECONDARY),
-            );
-            if ui.small_button("开启").clicked() {
-                choice = Some(true);
-            }
-            if ui.small_button("关闭").clicked() {
-                choice = Some(false);
-            }
-        });
+    ui.label(
+        egui::RichText::new(title)
+            .size(14.0)
+            .strong()
+            .color(theme::TEXT_PRIMARY),
+    );
+    ui.label(
+        egui::RichText::new(description)
+            .size(12.0)
+            .color(theme::TEXT_SECONDARY),
+    );
+    ui.add_space(4.0);
+    ui.horizontal(|ui| {
+        status_badge(ui, "系统默认 / 状态未知", theme::TEXT_DIM);
+        if ui.add(theme::secondary_button("开启")).clicked() {
+            choice = Some(true);
+        }
+        if ui.add(theme::secondary_button("关闭")).clicked() {
+            choice = Some(false);
+        }
     });
     choice
 }

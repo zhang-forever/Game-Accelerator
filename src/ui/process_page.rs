@@ -2,91 +2,72 @@ use super::{theme, widgets};
 use crate::app::{GameAcceleratorApp, ProcessInfo, ProcessSort};
 use crate::core::process_category::{self, Category};
 
-/// Memory threshold (MB) below which a process is considered "small" and can be
-/// hidden from the advanced list. Tiny processes add noise without being worth
-/// closing for gaming, so they are filtered out by default.
+/// Memory threshold below which the advanced list may hide small processes.
 const SMALL_PROCESS_MB: u64 = 50;
+const PROCESS_LIST_LIMIT: usize = 200;
+const TABLE_ROW_HEIGHT: f32 = 40.0;
+const TABLE_ROW_PADDING: f32 = 8.0;
 
 pub fn show(app: &mut GameAcceleratorApp, ui: &mut egui::Ui) {
-    // Header with title + mode toggle
+    widgets::page_header(
+        ui,
+        "进程管理",
+        "查看正在运行的程序和资源占用，按需管理后台任务。",
+    );
+
     ui.horizontal(|ui| {
-        ui.label(
-            egui::RichText::new("进程管理")
-                .size(22.0)
-                .strong()
-                .color(theme::TEXT_PRIMARY),
-        );
-        ui.add_space(8.0);
-
-        // Help tooltip
-        let help_icon = ui.label(
-            egui::RichText::new("❓")
-                .size(16.0)
-                .color(theme::TEXT_DIM),
-        );
-        help_icon.on_hover_text(
-            "管理系统运行的进程\n\n💡 使用方法：\n• 简单模式：按类别批量关闭进程\n• 高级模式：查看所有进程详情\n• 绿色边框 = 推荐游戏时关闭\n\n⚠️ 注意：\n• 关闭系统进程可能导致不稳定\n• 建议只关闭推荐的类别\n• 关闭前确保保存工作"
-        );
-
+        if ui
+            .add(view_button("分类概览", !app.process_advanced))
+            .clicked()
+        {
+            app.process_advanced = false;
+        }
+        if ui
+            .add(view_button("进程列表", app.process_advanced))
+            .clicked()
+        {
+            app.process_advanced = true;
+        }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            // Mode toggle pill
-            let label = if app.process_advanced {
-                "切换到简单模式"
-            } else {
-                "高级模式"
-            };
             if ui
-                .add(
-                    egui::Button::new(
-                        egui::RichText::new(label)
-                            .size(12.0)
-                            .color(theme::TEXT_SECONDARY),
-                    )
-                    .fill(egui::Color32::from_rgb(32, 34, 48))
-                    .rounding(egui::Rounding::same(6.0)),
-                )
-                .clicked()
-            {
-                app.process_advanced = !app.process_advanced;
-            }
-
-            if ui
-                .add(
-                    egui::Button::new(egui::RichText::new("🔄 刷新").size(12.0))
-                        .rounding(egui::Rounding::same(6.0)),
+                .add_enabled(
+                    !app.process_refresh_busy,
+                    theme::secondary_button(if app.process_refresh_busy {
+                        "读取中…"
+                    } else {
+                        "刷新列表"
+                    })
+                    .min_size(egui::vec2(100.0, 36.0)),
                 )
                 .clicked()
             {
                 refresh_process_list(app);
             }
+            widgets::status_badge(ui, "关键进程已保护", theme::ACCENT);
         });
     });
+    ui.add_space(18.0);
 
-    ui.add_space(6.0);
-
-    // Auto-load on first visit
+    // Keep the initial load and refresh on the app's existing background worker.
     if !app.process_list_initialized && !app.process_refresh_busy {
         refresh_process_list(app);
     }
     if app.process_refresh_busy {
-        ui.label(
-            egui::RichText::new("正在读取进程列表…")
-                .size(12.0)
-                .color(theme::TEXT_SECONDARY),
-        );
+        widgets::notice(ui, "正在读取进程列表…", theme::ACCENT);
+        ui.add_space(12.0);
     } else if app.process_list_initialized && app.process_list.is_empty() {
-        ui.label("暂无进程数据，请点击刷新重试。");
+        widgets::notice(ui, "暂无进程数据，请点击刷新重试。", theme::TEXT_SECONDARY);
+        ui.add_space(12.0);
     }
 
-    // Status message
-    if let Some(ref msg) = app.process_status {
-        let color = if msg.starts_with("✓") {
+    if let Some(ref message) = app.process_status {
+        let color = if message.starts_with('✓') {
             theme::SUCCESS
         } else {
             theme::WARNING
         };
-        ui.label(egui::RichText::new(msg).size(13.0).color(color));
-        ui.add_space(4.0);
+        widgets::notice(ui, message, color);
+        ui.add_space(12.0);
     }
 
     if app.process_advanced {
@@ -97,111 +78,107 @@ pub fn show(app: &mut GameAcceleratorApp, ui: &mut egui::Ui) {
     show_close_confirmation(app, ui);
 }
 
-// ============ SIMPLE (CATEGORY) VIEW ============
-
 fn show_categories(app: &mut GameAcceleratorApp, ui: &mut egui::Ui) {
-    ui.label(
-        egui::RichText::new("按用途查看资源占用。关闭前会显示程序名单，请先保存工作。")
-            .size(12.0)
-            .color(theme::TEXT_SECONDARY),
-    );
-    ui.add_space(10.0);
-
     let groups = process_category::group_processes(&app.process_list);
     let mut close_request: Option<(Category, Vec<String>)> = None;
 
-    egui::ScrollArea::vertical().show(ui, |ui| {
-        for group in &groups {
-            let cat = group.category;
-            let is_system = cat == Category::System;
+    ui.horizontal(|ui| {
+        ui.label(
+            egui::RichText::new("按用途分组")
+                .size(14.0)
+                .strong()
+                .color(theme::TEXT_PRIMARY),
+        );
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.label(
+                egui::RichText::new(format!(
+                    "{} 类程序 · {} 个进程",
+                    groups.len(),
+                    app.process_list.len()
+                ))
+                .size(12.0)
+                .color(theme::TEXT_DIM),
+            );
+        });
+    });
+    ui.add_space(6.0);
+    ui.label(
+        egui::RichText::new("关闭前会显示程序名单，请先保存工作。")
+            .size(12.0)
+            .color(theme::TEXT_SECONDARY),
+    );
+    ui.add_space(14.0);
 
-            // Card border color: highlight recommended categories
-            let border = if cat.recommended_for_gaming() {
-                theme::ACCENT
-            } else {
-                theme::CARD_BORDER
-            };
+    egui::ScrollArea::vertical()
+        .id_salt("process_categories")
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
+            for group in &groups {
+                let category = group.category;
+                let is_system = category == Category::System;
 
-            egui::Frame::none()
-                .fill(theme::CARD_BG)
-                .rounding(egui::Rounding::same(10.0))
-                .inner_margin(egui::Margin::same(14.0))
-                .stroke(egui::Stroke::new(1.0, border))
-                .show(ui, |ui| {
+                theme::card_frame().show(ui, |ui| {
                     ui.set_width(ui.available_width());
+                    ui.spacing_mut().item_spacing.x = 12.0;
                     ui.horizontal(|ui| {
-                        // Icon
-                        ui.label(egui::RichText::new(cat.icon()).size(26.0));
-                        ui.add_space(8.0);
-
-                        // Name + description + stats
-                        ui.vertical(|ui| {
-                            ui.horizontal(|ui| {
+                        let details_width = (ui.available_width() - 176.0).max(120.0);
+                        category_marker(ui, category);
+                        ui.allocate_ui_with_layout(
+                            egui::vec2(details_width, 64.0),
+                            egui::Layout::top_down(egui::Align::Min),
+                            |ui| {
+                                ui.set_max_width(details_width);
+                                ui.spacing_mut().item_spacing.y = 3.0;
                                 ui.label(
-                                    egui::RichText::new(cat.display_name())
-                                        .size(15.0)
+                                    egui::RichText::new(category.display_name())
+                                        .size(16.0)
                                         .strong()
                                         .color(theme::TEXT_PRIMARY),
                                 );
-                                if cat.recommended_for_gaming() {
-                                    ui.add_space(4.0);
-                                    widgets::status_badge(ui, "建议关闭", theme::ACCENT);
-                                }
-                            });
-                            ui.label(
-                                egui::RichText::new(cat.description())
-                                    .size(11.0)
-                                    .color(theme::TEXT_DIM),
-                            );
-                            ui.add_space(2.0);
-                            ui.label(
-                                egui::RichText::new(format!(
-                                    "{} 个程序  ·  占用 {} MB 内存",
-                                    group.process_count, group.total_memory_mb
-                                ))
-                                .size(12.0)
-                                .color(theme::TEXT_SECONDARY),
-                            );
-                        });
-
-                        // Right-aligned action button
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if is_system {
-                                ui.add_enabled(
-                                    false,
-                                    egui::Button::new(
-                                        egui::RichText::new("不可关闭")
+                                ui.add(
+                                    egui::Label::new(
+                                        egui::RichText::new(category_description(category))
                                             .size(12.0)
                                             .color(theme::TEXT_DIM),
-                                    ),
+                                    )
+                                    .truncate(),
                                 );
+                                ui.label(
+                                    egui::RichText::new(format!(
+                                        "{} 个进程   ·   {} MB 内存",
+                                        group.process_count, group.total_memory_mb
+                                    ))
+                                    .size(12.0)
+                                    .color(theme::TEXT_SECONDARY),
+                                );
+                            },
+                        );
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            let button = theme::secondary_button(if is_system {
+                                "受保护"
                             } else {
-                                let (bg, fg) = if cat.safe_to_close() {
-                                    (theme::ACCENT, egui::Color32::from_rgb(8, 10, 14))
+                                "查看并关闭"
+                            })
+                            .min_size(egui::vec2(108.0, 36.0));
+                            if ui
+                                .add_enabled(!is_system, button)
+                                .on_hover_text(if is_system {
+                                    "系统与安全进程会保留。"
                                 } else {
-                                    (egui::Color32::from_rgb(60, 40, 40), theme::WARNING)
-                                };
-                                let btn = egui::Button::new(
-                                    egui::RichText::new("关闭这类")
-                                        .size(13.0)
-                                        .strong()
-                                        .color(fg),
-                                )
-                                .fill(bg)
-                                .rounding(egui::Rounding::same(6.0))
-                                .min_size(egui::vec2(90.0, 32.0));
-                                if ui.add(btn).clicked() {
-                                    close_request = Some((cat, group.process_names.clone()));
-                                }
+                                    "先查看程序名单，再确认结束。"
+                                })
+                                .clicked()
+                            {
+                                close_request = Some((category, group.process_names.clone()));
                             }
                         });
                     });
                 });
-            ui.add_space(6.0);
-        }
-    });
+                ui.add_space(12.0);
+            }
+        });
 
-    if let Some((_cat, names)) = close_request {
+    if let Some((_category, names)) = close_request {
         app.process_close_request = Some(
             app.process_list
                 .iter()
@@ -217,182 +194,229 @@ fn show_categories(app: &mut GameAcceleratorApp, ui: &mut egui::Ui) {
     }
 }
 
-// ============ ADVANCED (FULL LIST) VIEW ============
-
 fn show_advanced(app: &mut GameAcceleratorApp, ui: &mut egui::Ui) {
-    // Search + sort
-    ui.horizontal(|ui| {
-        ui.label(egui::RichText::new("🔍").color(theme::TEXT_SECONDARY));
-        ui.add(
-            egui::TextEdit::singleline(&mut app.process_filter)
-                .hint_text("搜索进程名")
-                .desired_width(160.0),
-        );
-        ui.add_space(10.0);
-        ui.label(
-            egui::RichText::new("排序:")
-                .size(12.0)
-                .color(theme::TEXT_SECONDARY),
-        );
-        sort_button(ui, app, ProcessSort::MemoryDesc, "内存 ↓");
-        sort_button(ui, app, ProcessSort::CpuDesc, "CPU ↓");
-        sort_button(ui, app, ProcessSort::NameAsc, "名称 A-Z");
+    let filter = app.process_filter.to_lowercase();
+    let matching_count = app
+        .process_list
+        .iter()
+        .filter(|process| filter.is_empty() || process.name.to_lowercase().contains(&filter))
+        .filter(|process| !app.process_hide_small || process.memory_mb >= SMALL_PROCESS_MB)
+        .count();
 
-        ui.add_space(10.0);
-        let hide_label = format!("隐藏小进程 (<{}MB)", SMALL_PROCESS_MB);
-        let (bg, fg) = if app.process_hide_small {
-            (theme::ACCENT, egui::Color32::from_rgb(8, 10, 14))
-        } else {
-            (egui::Color32::from_rgb(32, 34, 48), theme::TEXT_SECONDARY)
-        };
-        let hide_btn = egui::Button::new(egui::RichText::new(hide_label).size(12.0).color(fg))
-            .fill(bg)
-            .rounding(egui::Rounding::same(5.0));
-        if ui
-            .add(hide_btn)
-            .on_hover_text(
-                "小于 50MB 的进程占用资源极少，关掉收益不大。\n隐藏它们让你专注于真正的内存大户。",
+    theme::card_frame().show(ui, |ui| {
+        ui.set_width(ui.available_width());
+        ui.horizontal(|ui| {
+            let search_width = (ui.available_width() - 174.0).max(160.0);
+            ui.add(
+                egui::TextEdit::singleline(&mut app.process_filter)
+                    .font(egui::FontId::proportional(14.0))
+                    .hint_text("搜索进程名称…")
+                    .desired_width(search_width),
+            );
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.label(
+                    egui::RichText::new(format!(
+                        "{} / {} 个进程",
+                        matching_count.min(PROCESS_LIST_LIMIT),
+                        app.process_list.len()
+                    ))
+                    .size(12.0)
+                    .color(theme::TEXT_DIM),
+                );
+            });
+        });
+        ui.add_space(12.0);
+        ui.horizontal_wrapped(|ui| {
+            ui.label(
+                egui::RichText::new("排序")
+                    .size(12.0)
+                    .color(theme::TEXT_SECONDARY),
+            );
+            sort_button(ui, app, ProcessSort::MemoryDesc, "内存 ↓");
+            sort_button(ui, app, ProcessSort::CpuDesc, "CPU ↓");
+            sort_button(ui, app, ProcessSort::NameAsc, "名称 A-Z");
+            ui.add_space(8.0);
+            ui.checkbox(
+                &mut app.process_hide_small,
+                egui::RichText::new(format!("隐藏小进程（< {} MB）", SMALL_PROCESS_MB))
+                    .size(12.0)
+                    .color(theme::TEXT_SECONDARY),
             )
-            .clicked()
-        {
-            app.process_hide_small = !app.process_hide_small;
-        }
-
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let shown = app
-                .process_list
-                .iter()
-                .filter(|p| !app.process_hide_small || p.memory_mb >= SMALL_PROCESS_MB)
-                .count();
-            let total = app.process_list.len();
-            let text = if app.process_hide_small && shown < total {
-                format!("显示 {} / {} 个进程", shown, total)
-            } else {
-                format!("{} 个进程", total)
-            };
-            ui.label(egui::RichText::new(text).size(12.0).color(theme::TEXT_DIM));
+            .on_hover_text("仅隐藏列表中内存占用不足 50 MB 的进程，不会关闭它们。");
         });
     });
+    ui.add_space(14.0);
 
-    ui.add_space(6.0);
-
+    // Sorting and display limits retain the existing list behavior.
     let filter = app.process_filter.to_lowercase();
     sort_processes(&mut app.process_list, app.process_sort);
-
+    let processes: Vec<ProcessInfo> = app
+        .process_list
+        .iter()
+        .filter(|process| filter.is_empty() || process.name.to_lowercase().contains(&filter))
+        .filter(|process| !app.process_hide_small || process.memory_mb >= SMALL_PROCESS_MB)
+        .take(PROCESS_LIST_LIMIT)
+        .cloned()
+        .collect();
     let mut kill_request: Option<(u32, String)> = None;
 
-    egui::ScrollArea::vertical().show(ui, |ui| {
-        let total_w = ui.available_width();
-
-        egui::Frame::none()
-            .fill(egui::Color32::from_rgb(18, 19, 28))
-            .rounding(egui::Rounding::same(6.0))
-            .inner_margin(egui::Margin::symmetric(10.0, 6.0))
-            .show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    header_cell(ui, "进程名", total_w * 0.34);
-                    header_cell(ui, "PID", total_w * 0.10);
-                    header_cell(ui, "CPU %", total_w * 0.12);
-                    header_cell(ui, "内存 MB", total_w * 0.14);
-                    header_cell(ui, "状态", total_w * 0.16);
-                    header_cell(ui, "操作", total_w * 0.10);
-                });
-            });
-
-        ui.add_space(3.0);
-
-        let processes: Vec<ProcessInfo> = app
-            .process_list
-            .iter()
-            .filter(|p| filter.is_empty() || p.name.to_lowercase().contains(&filter))
-            .filter(|p| !app.process_hide_small || p.memory_mb >= SMALL_PROCESS_MB)
-            .take(200)
-            .cloned()
-            .collect();
-
-        for proc in &processes {
-            let row_bg = if proc.is_protected {
-                egui::Color32::from_rgb(26, 28, 40)
-            } else {
-                theme::CARD_BG
-            };
-
-            egui::Frame::none()
-                .fill(row_bg)
-                .rounding(egui::Rounding::same(5.0))
-                .inner_margin(egui::Margin::symmetric(10.0, 5.0))
+    egui::Frame::none()
+        .fill(theme::CARD_BG)
+        .rounding(egui::Rounding::same(16.0))
+        .inner_margin(egui::Margin::same(12.0))
+        .stroke(egui::Stroke::new(1.0, theme::CARD_BORDER))
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            egui::ScrollArea::vertical()
+                .id_salt("process_table")
+                .auto_shrink([false, false])
                 .show(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        sized_cell(ui, total_w * 0.34, |ui| {
+                    let row_width = ui.available_width();
+                    let widths = table_widths(row_width - TABLE_ROW_PADDING * 2.0);
+                    egui::Frame::none()
+                        .inner_margin(egui::Margin::symmetric(TABLE_ROW_PADDING, 4.0))
+                        .show(ui, |ui| {
+                            ui.spacing_mut().item_spacing.x = 0.0;
+                            ui.horizontal(|ui| {
+                                header_cell(ui, "进程名称", widths[0], false);
+                                header_cell(ui, "PID", widths[1], true);
+                                header_cell(ui, "CPU %", widths[2], true);
+                                header_cell(ui, "内存 MB", widths[3], true);
+                                header_cell(ui, "状态", widths[4], false);
+                                header_cell(ui, "操作", widths[5], true);
+                            });
+                        });
+                    ui.separator();
+                    ui.add_space(4.0);
+
+                    if processes.is_empty() {
+                        ui.add_space(20.0);
+                        ui.vertical_centered(|ui| {
                             ui.label(
-                                egui::RichText::new(&proc.name)
-                                    .size(12.0)
+                                egui::RichText::new("没有匹配的进程")
+                                    .size(14.0)
                                     .color(theme::TEXT_PRIMARY),
                             );
-                        });
-                        sized_cell(ui, total_w * 0.10, |ui| {
                             ui.label(
-                                egui::RichText::new(proc.pid.to_string())
+                                egui::RichText::new("尝试其他名称，或关闭“隐藏小进程”。")
                                     .size(12.0)
-                                    .color(theme::TEXT_SECONDARY),
+                                    .color(theme::TEXT_DIM),
                             );
                         });
-                        sized_cell(ui, total_w * 0.12, |ui| {
-                            ui.label(
-                                egui::RichText::new(format!("{:.1}", proc.cpu_usage))
-                                    .size(12.0)
-                                    .color(if proc.cpu_usage > 30.0 {
-                                        theme::WARNING
-                                    } else {
-                                        theme::TEXT_SECONDARY
-                                    }),
-                            );
-                        });
-                        sized_cell(ui, total_w * 0.14, |ui| {
-                            ui.label(
-                                egui::RichText::new(format!("{}", proc.memory_mb))
-                                    .size(12.0)
-                                    .color(if proc.memory_mb > 500 {
-                                        theme::WARNING
-                                    } else {
-                                        theme::TEXT_SECONDARY
-                                    }),
-                            );
-                        });
-                        sized_cell(ui, total_w * 0.16, |ui| {
-                            if proc.is_protected || proc.is_whitelisted {
-                                widgets::status_badge(ui, "保护", theme::TEXT_SECONDARY);
-                            } else if proc.is_blacklisted {
-                                widgets::status_badge(ui, "清理名单", theme::WARNING);
-                            }
-                        });
-                        sized_cell(ui, total_w * 0.10, |ui| {
-                            if proc.is_protected || proc.is_whitelisted {
-                                ui.add_enabled(
-                                    false,
-                                    egui::Button::new(
-                                        egui::RichText::new("受保护")
-                                            .size(11.0)
-                                            .color(theme::TEXT_DIM),
-                                    )
-                                    .small(),
-                                );
+                        ui.add_space(20.0);
+                    }
+
+                    for process in &processes {
+                        let row_rect = egui::Rect::from_min_size(
+                            ui.next_widget_position(),
+                            egui::vec2(row_width, TABLE_ROW_HEIGHT + 8.0),
+                        );
+                        let hovered = ui
+                            .input(|input| input.pointer.hover_pos())
+                            .is_some_and(|position| row_rect.contains(position));
+                        egui::Frame::none()
+                            .fill(if hovered {
+                                theme::SURFACE_HOVER
                             } else {
-                                let kill_btn = egui::Button::new(
-                                    egui::RichText::new("结束").size(11.0).color(theme::DANGER),
-                                )
-                                .small()
-                                .fill(egui::Color32::from_rgb(44, 24, 24));
-                                if ui.add(kill_btn).clicked() {
-                                    kill_request = Some((proc.pid, proc.name.clone()));
-                                }
-                            }
-                        });
-                    });
+                                egui::Color32::TRANSPARENT
+                            })
+                            .rounding(egui::Rounding::same(10.0))
+                            .inner_margin(egui::Margin::symmetric(TABLE_ROW_PADDING, 4.0))
+                            .show(ui, |ui| {
+                                ui.spacing_mut().item_spacing.x = 0.0;
+                                ui.horizontal(|ui| {
+                                    table_cell(ui, widths[0], TABLE_ROW_HEIGHT, false, |ui| {
+                                        ui.add(
+                                            egui::Label::new(
+                                                egui::RichText::new(&process.name)
+                                                    .size(14.0)
+                                                    .color(theme::TEXT_PRIMARY),
+                                            )
+                                            .truncate(),
+                                        )
+                                        .on_hover_text(&process.name);
+                                    });
+                                    table_cell(ui, widths[1], TABLE_ROW_HEIGHT, true, |ui| {
+                                        number_label(ui, &process.pid.to_string(), theme::TEXT_DIM);
+                                    });
+                                    table_cell(ui, widths[2], TABLE_ROW_HEIGHT, true, |ui| {
+                                        number_label(
+                                            ui,
+                                            &format!("{:.1}", process.cpu_usage),
+                                            if process.cpu_usage > 30.0 {
+                                                theme::WARNING
+                                            } else {
+                                                theme::TEXT_SECONDARY
+                                            },
+                                        );
+                                    });
+                                    table_cell(ui, widths[3], TABLE_ROW_HEIGHT, true, |ui| {
+                                        number_label(
+                                            ui,
+                                            &process.memory_mb.to_string(),
+                                            if process.memory_mb > 500 {
+                                                theme::WARNING
+                                            } else {
+                                                theme::TEXT_SECONDARY
+                                            },
+                                        );
+                                    });
+                                    table_cell(ui, widths[4], TABLE_ROW_HEIGHT, false, |ui| {
+                                        ui.add_space(16.0);
+                                        if process.is_protected {
+                                            widgets::status_badge(ui, "受保护", theme::ACCENT);
+                                        } else if process.is_whitelisted {
+                                            widgets::status_badge(ui, "白名单", theme::ACCENT);
+                                        } else if process.is_blacklisted {
+                                            widgets::status_badge(ui, "清理名单", theme::WARNING);
+                                        } else {
+                                            widgets::status_badge(ui, "运行中", theme::TEXT_DIM);
+                                        }
+                                    });
+                                    table_cell(ui, widths[5], TABLE_ROW_HEIGHT, true, |ui| {
+                                        let button = egui::Button::new(
+                                            egui::RichText::new("结束")
+                                                .size(12.0)
+                                                .color(theme::DANGER),
+                                        )
+                                        .fill(theme::DANGER.linear_multiply(0.08))
+                                        .rounding(egui::Rounding::same(10.0))
+                                        .min_size(egui::vec2(62.0, 30.0));
+                                        if ui
+                                            .add_enabled(
+                                                !process.is_protected && !process.is_whitelisted,
+                                                button,
+                                            )
+                                            .on_hover_text(
+                                                if process.is_protected || process.is_whitelisted {
+                                                    "受保护和白名单进程不会被关闭。"
+                                                } else {
+                                                    "查看确认窗口后结束此进程。"
+                                                },
+                                            )
+                                            .clicked()
+                                        {
+                                            kill_request =
+                                                Some((process.pid, process.name.clone()));
+                                        }
+                                    });
+                                });
+                            });
+                        ui.add_space(2.0);
+                    }
+                    if matching_count > PROCESS_LIST_LIMIT {
+                        ui.add_space(8.0);
+                        ui.label(
+                            egui::RichText::new(format!(
+                                "当前展示前 {} 项，可用搜索缩小范围。",
+                                PROCESS_LIST_LIMIT
+                            ))
+                            .size(12.0)
+                            .color(theme::TEXT_DIM),
+                        );
+                    }
                 });
-            ui.add_space(2.0);
-        }
-    });
+        });
 
     if let Some((pid, _name)) = kill_request {
         app.process_close_request = Some(
@@ -406,8 +430,6 @@ fn show_advanced(app: &mut GameAcceleratorApp, ui: &mut egui::Ui) {
         );
     }
 }
-
-// ============ HELPERS ============
 
 fn refresh_process_list(app: &mut GameAcceleratorApp) {
     app.refresh_processes();
@@ -424,19 +446,50 @@ fn show_close_confirmation(app: &mut GameAcceleratorApp, ui: &egui::Ui) {
         .open(&mut open)
         .collapsible(false)
         .resizable(false)
+        .default_width(440.0)
         .show(ui.ctx(), |ui| {
-            ui.label("将强制结束下面的程序，未保存的内容可能丢失：");
+            widgets::notice(
+                ui,
+                "将强制结束下面的程序，未保存的内容可能丢失。",
+                theme::WARNING,
+            );
+            ui.add_space(14.0);
             egui::ScrollArea::vertical()
                 .max_height(200.0)
                 .show(ui, |ui| {
                     for process in &processes {
-                        ui.label(format!("{} (PID {})", process.name, process.pid));
+                        ui.horizontal(|ui| {
+                            ui.add(
+                                egui::Label::new(
+                                    egui::RichText::new(&process.name)
+                                        .size(14.0)
+                                        .color(theme::TEXT_PRIMARY),
+                                )
+                                .truncate(),
+                            );
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    ui.label(
+                                        egui::RichText::new(format!("PID {}", process.pid))
+                                            .size(12.0)
+                                            .monospace()
+                                            .color(theme::TEXT_DIM),
+                                    );
+                                },
+                            );
+                        });
                     }
                 });
             if processes.is_empty() {
-                ui.label("此类别没有可关闭的进程。受保护和白名单程序已保留。");
+                ui.label(
+                    egui::RichText::new("没有可关闭的进程。受保护和白名单程序已保留。")
+                        .size(12.0)
+                        .color(theme::TEXT_SECONDARY),
+                );
             }
-            ui.horizontal(|ui| {
+            ui.add_space(18.0);
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 confirm = ui
                     .add_enabled(
                         !processes.is_empty()
@@ -444,7 +497,7 @@ fn show_close_confirmation(app: &mut GameAcceleratorApp, ui: &egui::Ui) {
                             && !app.is_boosting
                             && !app.is_restoring
                             && !app.action_busy,
-                        theme::primary_button("结束这些程序"),
+                        theme::primary_button("确认结束"),
                     )
                     .clicked();
                 cancel = ui.add(theme::secondary_button("取消")).clicked();
@@ -470,36 +523,139 @@ fn sort_processes(list: &mut [ProcessInfo], sort: ProcessSort) {
     }
 }
 
+fn view_button(label: &str, selected: bool) -> egui::Button<'_> {
+    egui::Button::new(egui::RichText::new(label).size(14.0).color(if selected {
+        theme::ACCENT
+    } else {
+        theme::TEXT_SECONDARY
+    }))
+    .fill(if selected {
+        theme::ACCENT_BG
+    } else {
+        theme::SURFACE
+    })
+    .stroke(egui::Stroke::new(
+        1.0,
+        if selected {
+            theme::ACCENT.linear_multiply(0.4)
+        } else {
+            theme::CARD_BORDER
+        },
+    ))
+    .rounding(egui::Rounding::same(10.0))
+    .min_size(egui::vec2(104.0, 36.0))
+}
+
 fn sort_button(ui: &mut egui::Ui, app: &mut GameAcceleratorApp, sort: ProcessSort, label: &str) {
     let selected = app.process_sort == sort;
-    let (bg, fg) = if selected {
-        (theme::ACCENT, egui::Color32::from_rgb(8, 10, 14))
-    } else {
-        (egui::Color32::from_rgb(32, 34, 48), theme::TEXT_SECONDARY)
-    };
-    let btn = egui::Button::new(egui::RichText::new(label).size(12.0).color(fg))
-        .fill(bg)
-        .rounding(egui::Rounding::same(5.0));
-    if ui.add(btn).clicked() {
+    if ui
+        .add(view_button(label, selected).min_size(egui::vec2(76.0, 30.0)))
+        .clicked()
+    {
         app.process_sort = sort;
     }
 }
 
-fn header_cell(ui: &mut egui::Ui, text: &str, width: f32) {
-    sized_cell(ui, width, |ui| {
-        ui.label(
-            egui::RichText::new(text)
-                .size(12.0)
-                .strong()
-                .color(theme::TEXT_SECONDARY),
+fn category_marker(ui: &mut egui::Ui, category: Category) {
+    let label = match category {
+        Category::Browser => "WEB",
+        Category::Chat => "IM",
+        Category::Office => "DOC",
+        Category::CloudSync => "SYNC",
+        Category::Updater => "UPD",
+        Category::Media => "PLAY",
+        Category::GameLauncher => "GAME",
+        Category::System => "SYS",
+        Category::Other => "APP",
+    };
+    let color = if category == Category::System {
+        theme::TEXT_SECONDARY
+    } else {
+        theme::ACCENT
+    };
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(44.0, 44.0), egui::Sense::hover());
+    ui.painter().rect_filled(
+        rect,
+        egui::Rounding::same(14.0),
+        color.linear_multiply(0.10),
+    );
+    ui.painter().text(
+        rect.center(),
+        egui::Align2::CENTER_CENTER,
+        label,
+        egui::FontId::proportional(11.0),
+        color,
+    );
+}
+
+fn category_description(category: Category) -> &'static str {
+    match category {
+        Category::Browser => "网页浏览与网页应用",
+        Category::Chat => "即时通讯与语音聊天",
+        Category::Office => "文档、表格与阅读器",
+        Category::CloudSync => "文件备份与同步",
+        Category::Updater => "安装与自动更新任务",
+        Category::Media => "音乐与视频播放",
+        Category::GameLauncher => "游戏下载与平台客户端",
+        Category::System => "Windows 系统、安全与关键服务",
+        Category::Other => "未分类的桌面与后台应用",
+    }
+}
+
+/// Fixed data columns keep changing numeric values from shifting the table.
+fn table_widths(total_width: f32) -> [f32; 6] {
+    let total_width = total_width.max(0.0);
+    let name_width = (total_width - 380.0).max(120.0).min(total_width);
+    let scale = ((total_width - name_width) / 380.0).clamp(0.0, 1.0);
+    [
+        name_width,
+        56.0 * scale,
+        70.0 * scale,
+        88.0 * scale,
+        92.0 * scale,
+        74.0 * scale,
+    ]
+}
+
+fn header_cell(ui: &mut egui::Ui, text: &str, width: f32, right_aligned: bool) {
+    table_cell(ui, width, 28.0, right_aligned, |ui| {
+        if text == "状态" {
+            ui.add_space(16.0);
+        }
+        ui.add(
+            egui::Label::new(egui::RichText::new(text).size(12.0).color(theme::TEXT_DIM))
+                .truncate(),
         );
     });
 }
 
-fn sized_cell(ui: &mut egui::Ui, width: f32, content: impl FnOnce(&mut egui::Ui)) {
-    ui.allocate_ui_with_layout(
-        egui::vec2(width.max(40.0), 18.0),
-        egui::Layout::left_to_right(egui::Align::Center),
-        content,
+fn number_label(ui: &mut egui::Ui, value: &str, color: egui::Color32) {
+    ui.add(
+        egui::Label::new(
+            egui::RichText::new(value)
+                .size(12.0)
+                .monospace()
+                .color(color),
+        )
+        .truncate(),
     );
+}
+
+fn table_cell(
+    ui: &mut egui::Ui,
+    width: f32,
+    height: f32,
+    right_aligned: bool,
+    content: impl FnOnce(&mut egui::Ui),
+) {
+    let layout = if right_aligned {
+        egui::Layout::right_to_left(egui::Align::Center)
+    } else {
+        egui::Layout::left_to_right(egui::Align::Center)
+    };
+    ui.allocate_ui_with_layout(egui::vec2(width, height), layout, |ui| {
+        ui.set_min_width(width);
+        ui.set_max_width(width);
+        content(ui);
+    });
 }

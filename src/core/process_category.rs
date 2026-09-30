@@ -31,51 +31,6 @@ impl Category {
             Category::Other => "其他程序",
         }
     }
-
-    /// Return an emoji icon representing this category in the UI.
-    pub fn icon(&self) -> &'static str {
-        match self {
-            Category::Browser => "🌐",
-            Category::Chat => "💬",
-            Category::Office => "📄",
-            Category::CloudSync => "☁",
-            Category::Updater => "🔄",
-            Category::Media => "🎵",
-            Category::GameLauncher => "🎮",
-            Category::System => "⚙",
-            Category::Other => "📦",
-        }
-    }
-
-    /// Return a user-friendly description of what processes belong to this
-    /// category and whether closing them is recommended.
-    pub fn description(&self) -> &'static str {
-        match self {
-            Category::Browser => "Chrome、Edge 等网页浏览器，玩游戏时关掉能省不少内存",
-            Category::Chat => "微信、QQ、Discord 等。关掉后收不到消息，按需关闭",
-            Category::Office => "WPS、Office 等文档软件",
-            Category::CloudSync => "OneDrive、百度网盘等后台同步，玩游戏时建议关闭",
-            Category::Updater => "软件更新程序；关闭前确认没有安装或更新正在进行",
-            Category::Media => "音乐播放器、视频软件",
-            Category::GameLauncher => "Steam、Epic 等游戏平台（注意：关了可能影响正在玩的游戏）",
-            Category::System => "Windows 系统与安全进程，不能关闭",
-            Category::Other => "未分类的其他程序，关闭前请确认你认识它",
-        }
-    }
-
-    /// Categories eligible for a user-reviewed batch close. Protection and the
-    /// user's whitelist are still checked per process before closing anything.
-    pub fn safe_to_close(&self) -> bool {
-        matches!(
-            self,
-            Category::Browser | Category::CloudSync | Category::Media
-        )
-    }
-
-    /// Recommended to close for gaming (shown with a highlight).
-    pub fn recommended_for_gaming(&self) -> bool {
-        matches!(self, Category::CloudSync)
-    }
 }
 
 /// Classify a process by its executable name.

@@ -365,7 +365,12 @@ impl eframe::App for GameAcceleratorApp {
         let stats = self.stats.lock().clone();
         if let Some(test) = &mut self.smoke_test {
             match test.poll(ctx, &stats) {
-                Ok(Some(page)) => self.current_page = page,
+                Ok(Some(page)) => {
+                    self.current_page = page;
+                    if page == Page::Process {
+                        self.process_advanced = test.process_list_view();
+                    }
+                }
                 Ok(None) => {}
                 Err(error) => {
                     eprintln!("{}", error);
@@ -401,189 +406,152 @@ impl eframe::App for GameAcceleratorApp {
             }
         }
 
-        // Sidebar
         egui::SidePanel::left("sidebar")
             .resizable(false)
-            .exact_width(170.0)
+            .exact_width(196.0)
             .frame(
                 egui::Frame::none()
-                    .fill(egui::Color32::from_rgb(10, 10, 16))
-                    .inner_margin(egui::Margin::symmetric(12.0, 16.0)),
+                    .fill(crate::ui::theme::SIDEBAR_BG)
+                    .inner_margin(egui::Margin::symmetric(14.0, 24.0)),
             )
             .show(ctx, |ui| {
-                if self.smoke_test.is_some() || self.close_after_work || self.exit_ready {
+                if self.close_after_work || self.exit_ready {
                     ui.disable();
                 }
-                ui.add_space(8.0);
-
-                // Logo
-                ui.vertical_centered(|ui| {
-                    ui.label(
-                        egui::RichText::new("Game")
-                            .size(26.0)
-                            .color(egui::Color32::from_rgb(0, 255, 136))
-                            .strong(),
+                ui.horizontal(|ui| {
+                    let (rect, _) =
+                        ui.allocate_exact_size(egui::vec2(38.0, 38.0), egui::Sense::hover());
+                    ui.painter().rect_filled(
+                        rect,
+                        egui::Rounding::same(10.0),
+                        crate::ui::theme::ACCENT_BG,
                     );
-                    ui.label(
-                        egui::RichText::new("Accelerator")
-                            .size(16.0)
-                            .color(egui::Color32::from_rgb(140, 140, 160)),
+                    ui.painter().text(
+                        rect.center(),
+                        egui::Align2::CENTER_CENTER,
+                        "G",
+                        egui::FontId::proportional(23.0),
+                        crate::ui::theme::ACCENT,
                     );
+                    ui.vertical(|ui| {
+                        ui.label(
+                            egui::RichText::new("游戏加速器")
+                                .size(16.0)
+                                .strong()
+                                .color(crate::ui::theme::TEXT_PRIMARY),
+                        );
+                        ui.label(
+                            egui::RichText::new("GAME ACCELERATOR")
+                                .size(9.5)
+                                .color(crate::ui::theme::TEXT_DIM),
+                        );
+                    });
                 });
-
-                ui.add_space(28.0);
-
-                let pages = [
-                    (Page::Dashboard, "仪表盘"),
-                    (Page::Process, "进程管理"),
-                    (Page::Gpu, "GPU 设置"),
-                    (Page::SystemOpt, "系统优化"),
-                    (Page::Settings, "设置"),
-                ];
-
-                for (page, label) in &pages {
-                    let is_selected = self.current_page == *page;
-
-                    let (bg, text_color) = if is_selected {
-                        (
-                            egui::Color32::from_rgb(0, 255, 136),
-                            egui::Color32::from_rgb(10, 10, 16),
-                        )
-                    } else {
-                        (
-                            egui::Color32::TRANSPARENT,
-                            egui::Color32::from_rgb(140, 140, 160),
-                        )
-                    };
-
-                    let btn =
-                        egui::Button::new(egui::RichText::new(*label).size(13.0).color(text_color))
-                            .min_size(egui::vec2(146.0, 34.0))
-                            .rounding(egui::Rounding::same(6.0))
-                            .fill(bg);
-
-                    if ui.add(btn).clicked() {
-                        self.current_page = *page;
+                ui.add_space(30.0);
+                ui.label(
+                    egui::RichText::new("工作台")
+                        .size(11.0)
+                        .color(crate::ui::theme::TEXT_DIM),
+                );
+                ui.add_space(8.0);
+                for (page, label, icon) in [
+                    (
+                        Page::Dashboard,
+                        "性能概览",
+                        crate::ui::icons::Icon::Overview,
+                    ),
+                    (Page::Process, "进程管理", crate::ui::icons::Icon::Processes),
+                    (Page::Gpu, "显卡设置", crate::ui::icons::Icon::Gpu),
+                    (Page::SystemOpt, "系统优化", crate::ui::icons::Icon::Sliders),
+                    (Page::Settings, "偏好设置", crate::ui::icons::Icon::Settings),
+                ] {
+                    if navigation_row(ui, label, icon, self.current_page == page).clicked() {
+                        self.current_page = page;
                     }
-                    ui.add_space(3.0);
+                    ui.add_space(5.0);
                 }
-
-                // Bottom version
-                ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
-                    ui.add_space(8.0);
+                ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
                     ui.label(
-                        egui::RichText::new(concat!("v", env!("CARGO_PKG_VERSION")))
-                            .size(10.0)
-                            .color(egui::Color32::from_rgb(50, 50, 65)),
+                        egui::RichText::new(concat!("Version ", env!("CARGO_PKG_VERSION")))
+                            .size(11.0)
+                            .color(crate::ui::theme::TEXT_DIM),
                     );
+                    ui.add_space(10.0);
+                    egui::Frame::none()
+                        .fill(crate::ui::theme::CARD_BG)
+                        .rounding(egui::Rounding::same(10.0))
+                        .inner_margin(egui::Margin::same(12.0))
+                        .show(ui, |ui| {
+                            ui.set_min_width(140.0);
+                            ui.horizontal(|ui| {
+                                let (rect, _) = ui.allocate_exact_size(
+                                    egui::vec2(7.0, 7.0),
+                                    egui::Sense::hover(),
+                                );
+                                ui.painter().circle_filled(
+                                    rect.center(),
+                                    3.0,
+                                    crate::ui::theme::SUCCESS,
+                                );
+                                ui.label(
+                                    egui::RichText::new("资源监控运行中")
+                                        .size(11.5)
+                                        .color(crate::ui::theme::TEXT_SECONDARY),
+                                );
+                            });
+                            ui.label(
+                                egui::RichText::new("手动启动 · 按需优化")
+                                    .size(10.5)
+                                    .color(crate::ui::theme::TEXT_DIM),
+                            );
+                        });
                 });
             });
 
-        // Main content
         egui::CentralPanel::default()
-            .frame(
-                egui::Frame::none()
-                    .fill(egui::Color32::from_rgb(13, 13, 20))
-                    .inner_margin(egui::Margin::same(20.0)),
-            )
+            .frame(egui::Frame::none().fill(crate::ui::theme::BG).inner_margin(egui::Margin::symmetric(24.0,20.0)))
             .show(ctx, |ui| {
-                if self.smoke_test.is_some() || self.close_after_work || self.exit_ready {
-                    ui.disable();
-                }
-                // Monitoring runs with normal privileges; elevation is optional.
-                if !self.is_admin {
-                    egui::Frame::none()
-                        .fill(egui::Color32::from_rgb(60, 45, 15))
-                        .rounding(egui::Rounding::same(8.0))
-                        .inner_margin(egui::Margin::symmetric(14.0, 10.0))
-                        .stroke(egui::Stroke::new(
-                            1.0,
-                            egui::Color32::from_rgb(255, 200, 75),
-                        ))
-                        .show(ui, |ui| {
-                            ui.set_width(ui.available_width());
-                            ui.horizontal(|ui| {
-                                ui.label(
-                                    egui::RichText::new("⚠")
-                                        .size(18.0)
-                                        .color(egui::Color32::from_rgb(255, 200, 75)),
-                                );
-                                ui.add_space(4.0);
-                                ui.vertical(|ui| {
-                                    ui.label(
-                                        egui::RichText::new("普通权限运行 · 可直接监控和试用")
-                                            .size(13.0)
-                                            .strong()
-                                            .color(egui::Color32::from_rgb(255, 200, 75)),
-                                    );
-                                    ui.label(
-                                        egui::RichText::new(
-                                            "修改 GPU 调度、系统服务或遇到权限不足时，可按需提权",
-                                        )
-                                        .size(11.0)
-                                        .color(egui::Color32::from_rgb(200, 180, 140)),
-                                    );
-                                });
-                                ui.with_layout(
-                                    egui::Layout::right_to_left(egui::Align::Center),
-                                    |ui| {
-                                        let btn = egui::Button::new(
-                                            egui::RichText::new("🛡 以管理员身份重启")
-                                                .size(12.0)
-                                                .strong()
-                                                .color(egui::Color32::from_rgb(20, 16, 8)),
-                                        )
-                                        .fill(egui::Color32::from_rgb(255, 200, 75))
-                                        .rounding(egui::Rounding::same(6.0))
-                                        .min_size(egui::vec2(150.0, 34.0));
-                                        let can_restart = !self.is_boosting
-                                            && !self.is_restoring
-                                            && !self.action_busy
-                                            && !self.process_refresh_busy
-                                            && !self.session_active();
-                                        if ui.add_enabled(can_restart, btn).clicked() {
-                                            match crate::core::elevation::try_elevate_if_needed() {
-                                                Ok(true) => ctx.send_viewport_cmd(
-                                                    egui::ViewportCommand::Close,
-                                                ),
-                                                Ok(false) => {}
-                                                Err(error) => {
-                                                    self.sysopt_status =
-                                                        Some(format!("⚠ {}", error))
-                                                }
-                                            }
-                                        }
-                                    },
-                                );
-                            });
-                        });
-                    ui.add_space(12.0);
-                }
-
-                if let Some(status) = &self.sysopt_status {
-                    if self.current_page != Page::SystemOpt {
-                        ui.label(
-                            egui::RichText::new(status).color(if status.starts_with('✓') {
-                                crate::ui::theme::SUCCESS
-                            } else {
-                                crate::ui::theme::WARNING
-                            }),
-                        );
-                        ui.add_space(6.0);
+                if self.close_after_work || self.exit_ready { ui.disable(); }
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new("工作台").size(12.0).color(crate::ui::theme::TEXT_DIM));
+                    ui.label(egui::RichText::new("/").size(12.0).color(crate::ui::theme::TEXT_DIM));
+                    let label=match self.current_page {
+                        Page::Dashboard=>"性能概览", Page::Process=>"进程管理",Page::Gpu=>"显卡设置",
+                        Page::SystemOpt=>"系统优化",Page::Settings=>"偏好设置",
+                    };
+                    ui.label(egui::RichText::new(label).size(12.0).color(crate::ui::theme::TEXT_SECONDARY));
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center),|ui| {
+                        if !self.is_admin {
+                            let can_restart=!self.is_boosting&&!self.is_restoring&&!self.action_busy&&!self.process_refresh_busy&&!self.session_active();
+                            if ui.add_enabled(can_restart,crate::ui::theme::secondary_button("管理员权限").min_size(egui::vec2(100.0,30.0)))
+                                .on_hover_text("监控和游戏模式可使用普通权限；修改系统服务、GPU 调度或遇到权限不足时再提权。").clicked() {
+                                match crate::core::elevation::try_elevate_if_needed() {
+                                    Ok(true)=>ctx.send_viewport_cmd(egui::ViewportCommand::Close),
+                                    Ok(false)=>{},
+                                    Err(error)=>self.sysopt_status=Some(format!("⚠ {error}")),
+                                }
+                            }
+                        }
+                        crate::ui::widgets::status_badge(ui,if self.is_admin{"管理员模式"}else{"普通权限"},crate::ui::theme::TEXT_SECONDARY);
+                    });
+                });
+                ui.add_space(12.0);
+                ui.separator();
+                ui.add_space(18.0);
+                if let Some(status)=&self.sysopt_status {
+                    if self.current_page!=Page::SystemOpt {
+                        crate::ui::widgets::notice(ui,status,if status.starts_with('✓'){crate::ui::theme::SUCCESS}else{crate::ui::theme::WARNING});
                     }
                 }
-                if let Some(status) = &self.settings_status {
-                    if self.current_page != Page::Settings && status.starts_with('⚠') {
-                        ui.label(egui::RichText::new(status).color(crate::ui::theme::WARNING));
-                    }
+                if let Some(status)=&self.settings_status {
+                    if self.current_page!=Page::Settings && status.starts_with('⚠') {crate::ui::widgets::notice(ui,status,crate::ui::theme::WARNING);}
                 }
-
                 match self.current_page {
-                    Page::Dashboard => dashboard::show(self, ui),
-                    Page::Process => process_page::show(self, ui),
-                    Page::Gpu => gpu_page::show(self, ui),
-                    Page::SystemOpt => system_opt_page::show(self, ui),
-                    Page::Settings => settings_page::show(self, ui),
+                    Page::Dashboard=>dashboard::show(self,ui),
+                    Page::Process=>process_page::show(self,ui),
+                    Page::Gpu=>gpu_page::show(self,ui),
+                    Page::SystemOpt=>system_opt_page::show(self,ui),
+                    Page::Settings=>settings_page::show(self,ui),
                 };
             });
         let page_ready = self.current_page != Page::Process
@@ -602,11 +570,69 @@ impl eframe::App for GameAcceleratorApp {
         }
     }
 
+    fn raw_input_hook(&mut self, _ctx: &egui::Context, input: &mut egui::RawInput) {
+        if self.smoke_test.is_some() {
+            // Keep the live visual style while preventing input from triggering actions.
+            input
+                .events
+                .retain(|event| matches!(event, egui::Event::Screenshot { .. }));
+        }
+    }
     fn persist_egui_memory(&self) -> bool {
         self.smoke_test.is_none()
     }
 }
 
+fn navigation_row(
+    ui: &mut egui::Ui,
+    label: &str,
+    icon: crate::ui::icons::Icon,
+    selected: bool,
+) -> egui::Response {
+    let (rect, response) =
+        ui.allocate_exact_size(egui::vec2(ui.available_width(), 44.0), egui::Sense::click());
+    let background = if selected {
+        crate::ui::theme::ACCENT_BG
+    } else if response.hovered() {
+        crate::ui::theme::SURFACE
+    } else {
+        egui::Color32::TRANSPARENT
+    };
+    ui.painter()
+        .rect_filled(rect, egui::Rounding::same(10.0), background);
+    let color = if selected {
+        crate::ui::theme::ACCENT
+    } else {
+        crate::ui::theme::TEXT_SECONDARY
+    };
+    if selected {
+        ui.painter().rect_filled(
+            egui::Rect::from_center_size(
+                egui::pos2(rect.left() + 2.0, rect.center().y),
+                egui::vec2(3.0, 18.0),
+            ),
+            egui::Rounding::same(2.0),
+            crate::ui::theme::ACCENT,
+        );
+    }
+    crate::ui::icons::paint(
+        ui.painter(),
+        egui::Rect::from_center_size(
+            egui::pos2(rect.left() + 24.0, rect.center().y),
+            egui::vec2(18.0, 18.0),
+        ),
+        icon,
+        color,
+    );
+    ui.painter().text(
+        egui::pos2(rect.left() + 44.0, rect.center().y),
+        egui::Align2::LEFT_CENTER,
+        label,
+        egui::FontId::proportional(14.0),
+        color,
+    );
+    response
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -650,6 +676,24 @@ mod tests {
         }
     }
 
+    #[test]
+    fn smoke_capture_keeps_pixels_but_blocks_interactive_events() {
+        use eframe::App;
+        let mut app = idle_app();
+        app.smoke_test = Some(crate::smoke_test::SmokeTest::new(std::env::temp_dir()));
+        let mut input = egui::RawInput::default();
+        input
+            .events
+            .push(egui::Event::PointerMoved(egui::pos2(100.0, 100.0)));
+        input.events.push(egui::Event::Text("typing".to_string()));
+        input.events.push(egui::Event::Screenshot {
+            viewport_id: egui::ViewportId::ROOT,
+            image: Arc::new(egui::ColorImage::new([1, 1], egui::Color32::WHITE)),
+        });
+        app.raw_input_hook(&egui::Context::default(), &mut input);
+        assert_eq!(input.events.len(), 1);
+        assert!(matches!(input.events[0], egui::Event::Screenshot { .. }));
+    }
     fn assert_modifying_tasks_stay_idle(app: &mut GameAcceleratorApp) {
         app.start_boost();
         app.start_action(ActionTarget::System, || Ok("test action".to_string()));

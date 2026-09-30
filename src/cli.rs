@@ -8,6 +8,7 @@ pub struct Arguments {
     pub diagnose: Option<PathBuf>,
     pub smoke_test: Option<PathBuf>,
     pub help: bool,
+    pub window_size: Option<[u32; 2]>,
 }
 
 impl Arguments {
@@ -18,6 +19,25 @@ impl Arguments {
             let field = match argument.to_str() {
                 Some("--help" | "-h") => {
                     options.help = true;
+                    continue;
+                }
+                Some("--window-size") => {
+                    if options.window_size.is_some() {
+                        return Err("参数重复：--window-size".to_string());
+                    }
+                    let value = args
+                        .next()
+                        .ok_or_else(|| "--window-size 缺少宽x高".to_string())?;
+                    let text = value.to_string_lossy();
+                    let (width, height) = text
+                        .split_once('x')
+                        .ok_or_else(|| "窗口尺寸格式应为 1080x720".to_string())?;
+                    let width: u32 = width.parse().map_err(|_| "窗口宽度无效".to_string())?;
+                    let height: u32 = height.parse().map_err(|_| "窗口高度无效".to_string())?;
+                    if !(880..=3840).contains(&width) || !(560..=2160).contains(&height) {
+                        return Err("窗口尺寸需至少 880x560，最多 3840x2160".to_string());
+                    }
+                    options.window_size = Some([width, height]);
                     continue;
                 }
                 Some("--config-dir") => &mut options.config_dir,
@@ -94,6 +114,14 @@ pub fn write_report(path: &Path, report: &impl Serialize) -> Result<(), String> 
 mod tests {
     use super::*;
 
+    #[test]
+    fn explicit_window_size_accepts_valid_dimensions_and_rejects_invalid_input() {
+        let options = Arguments::parse(["--window-size", "880x560"].map(OsString::from)).unwrap();
+        assert_eq!(options.window_size, Some([880, 560]));
+        for value in ["800x500", "0x0", "abc", "99999x99999"] {
+            assert!(Arguments::parse(["--window-size", value].map(OsString::from)).is_err());
+        }
+    }
     #[test]
     fn paths_with_spaces_are_preserved() {
         let arguments = Arguments::parse([

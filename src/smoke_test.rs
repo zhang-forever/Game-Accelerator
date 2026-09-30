@@ -4,15 +4,16 @@ use serde::Serialize;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-const PAGES: [(Page, &str); 5] = [
+const PAGES: [(Page, &str); 6] = [
     (Page::Dashboard, "dashboard"),
     (Page::Settings, "settings"),
     (Page::Gpu, "gpu"),
     (Page::SystemOpt, "system"),
     (Page::Process, "processes"),
+    (Page::Process, "process-list"),
 ];
 
-/// Capture the real renderer while all modifying controls are disabled.
+/// Capture the live renderer while the app filters all interactive input.
 pub struct SmokeTest {
     directory: PathBuf,
     started: Instant,
@@ -95,6 +96,10 @@ impl SmokeTest {
             return Ok(Some(PAGES[self.page_index].0));
         }
         Ok(None)
+    }
+
+    pub fn process_list_view(&self) -> bool {
+        self.page_index == 5
     }
 
     pub fn request_capture(&mut self, ctx: &egui::Context, stats: &SystemStats) {

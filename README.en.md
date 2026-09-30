@@ -1,8 +1,12 @@
 # Game Accelerator
 
-A Windows 10/11 tool for managing local resources and game settings, built with Rust and egui. The current source version is **1.1.0**, with presets for VALORANT, League of Legends, and CrossFire.
+A Windows 10/11 tool for managing local resources and game settings, built with Rust and egui. The current local source version is **1.2.0**, with presets for VALORANT, League of Legends, and CrossFire.
 
 [简体中文](README.md) · [GitHub Releases](https://github.com/zhang-forever/Game-Accelerator/releases) · [MIT](LICENSE)
+
+Version 1.2.0 uses a consistent dark interface in blue and gray. Performance Overview brings game presets, session controls, and resource cards of equal width together. Process Management offers category and process list views. The Save and Restore Defaults buttons stay at the bottom of Preferences. The default window is 1080×720, with a minimum size of 880×560 and scrollable page content.
+
+![Game Accelerator Performance Overview](docs/screenshot.png)
 
 ## Try it on your PC
 
@@ -17,10 +21,10 @@ To run from this repository:
    .\run-local.cmd
    ```
 
-3. Choose a game preset in Settings and keep the default options for the first trial. Click Start Boost on the dashboard and keep the app running during your game.
+3. Choose a game preset in “性能概览” (Performance Overview) or “偏好设置” (Preferences) and keep the default options for the first trial. Click “启动加速” (Start Boost) and keep the app running during your game.
 4. Click “停止并恢复原设置” (Stop and Restore Original Settings) or close the app normally after playing to restore the power plan and Windows Game Mode settings that were active before the session. Check the status messages for the result.
 
-Use the attachments actually available on Releases. The older v1.0.0 EXE does not include the session restoration and defaults described here; a local build produces the 1.1.0 portable package. This workflow does not require an MSI installer.
+The local source can build a 1.2.0 portable package. For GitHub downloads, check the versions and attachments listed on Releases. The older v1.0.0 EXE does not include the session restoration and defaults described here. This workflow does not require an MSI installer.
 
 ## Defaults and restoration
 
@@ -40,11 +44,11 @@ This tool manages local resources and Windows settings. FPS and online latency e
 
 ## Features and input requirements
 
-- The dashboard displays CPU, memory, and process information. NVIDIA GPU utilization, temperature, and VRAM readings require an available `nvidia-smi`; other GPUs may not provide these readings.
-- The process page supports inspection and manual termination of background applications. Save their work first; the protected list does not establish that every third-party application can be closed safely.
+- Performance Overview displays CPU, memory, GPU, and process information. NVIDIA GPU utilization, temperature, and VRAM readings require an available `nvidia-smi`; other GPUs may not provide these readings.
+- Process Management offers category and process list views, with search, sorting, and confirmation before termination. Save application work first; the protected list does not establish that every third-party application can be closed safely.
 - System Optimization offers manual power, Game Mode, and other settings. The GUI reports unavailable features or insufficient permissions.
 - Game process identification accepts an **EXE filename or full path**, such as `VALORANT-Win64-Shipping.exe`.
-- Windows per-application GPU preferences require the **absolute path of an existing EXE**, such as `D:\Games\Example\game.exe`. A filename alone cannot identify the application for this setting.
+- Windows per-application GPU preferences require the **absolute path of an existing EXE**, such as `E:\Games\Example\game.exe`. A filename alone cannot identify the application for this setting.
 - Windows GPU preferences depend on the GPU, driver, and Windows support. Check the actual result in the GUI. CPU core parking changes, NVIDIA PowerMizer registry changes, and telemetry task disabling have been removed or disabled. The app does not launch games automatically.
 
 ## Local build and portable package
@@ -71,8 +75,8 @@ dist/
 │   ├── Diagnostics.cmd
 │   ├── 使用说明.txt
 │   └── SHA256SUMS.txt
-├── GameAccelerator-1.1.0-windows-x64.zip
-└── GameAccelerator-1.1.0-windows-x64.zip.sha256
+├── GameAccelerator-1.2.0-windows-x64.zip
+└── GameAccelerator-1.2.0-windows-x64.zip.sha256
 ```
 
 Packaging preserves existing directories. The ZIP includes only the distribution files above and excludes runtime `data`, configuration, and diagnostic reports. Use `Get-FileHash -Algorithm SHA256` to compare ZIP and EXE hashes with the supplied checksum files.
@@ -103,11 +107,14 @@ cargo test --locked --release
 cargo build --locked --release
 ```
 
-For a local read-only GUI check, `game-accelerator.exe --smoke-test <directory>` uses the actual egui renderer to save five page PNGs and `report.toml`, for example:
+For a local GUI check, `game-accelerator.exe --smoke-test <directory>` uses the actual egui renderer to save six PNGs: the five pages plus the advanced process list view, along with `report.toml`. It filters interactive input while preserving the normal visual appearance. It does not start boost, save configuration, or change power, registry, service, or process settings. For example:
 
 ```powershell
 .\target\release\game-accelerator.exe --smoke-test .\ui-smoke
+.\target\release\game-accelerator.exe --window-size 880x560 --smoke-test .\ui-smoke-small
 ```
+
+`--window-size <widthxheight>` sets the initial window dimensions. The second command checks the minimum window layout. Captures are named `dashboard.png`, `settings.png`, `gpu.png`, `system.png`, `processes.png`, and `process-list.png`.
 
 CI runs these checks, read-only diagnostics, and portable packaging, then uploads the ZIP and checksum files. The version-tag workflow builds and publishes the EXE, ZIP, and checksums. Editing the workflow alone does not publish a release.
 

@@ -5,3 +5,5 @@ pub mod settings_page;
 pub mod system_opt_page;
 pub mod theme;
 pub mod widgets;
+
+pub mod icons;

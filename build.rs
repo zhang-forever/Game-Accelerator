@@ -1,14 +1,14 @@
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
 
-    // On Windows, embed the application manifest so the exe requests administrator
-    // privileges via UAC on launch. Most optimizations (registry, services,
-    // process priority) require elevation, so this removes the need to manually
-    // "Run as administrator". The manifest also declares Windows 10/11 support.
+    // Use normal user privileges for monitoring. The UI requests elevation on
+    // demand; per-user settings do not need a UAC prompt at startup.
     #[cfg(windows)]
     {
         println!("cargo:rerun-if-changed=assets/app.rc");
         println!("cargo:rerun-if-changed=assets/app.manifest");
-        embed_resource::compile("assets/app.rc", embed_resource::NONE);
+        embed_resource::compile("assets/app.rc", embed_resource::NONE)
+            .manifest_required()
+            .expect("Failed to embed the Windows application manifest");
     }
 }

@@ -31,10 +31,7 @@ pub fn show(app: &mut GameAcceleratorApp, ui: &mut egui::Ui) {
             .inner_margin(egui::Margin::symmetric(12.0, 8.0))
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    ui.label(
-                        egui::RichText::new("💡")
-                            .size(14.0)
-                    );
+                    ui.label(egui::RichText::new("💡").size(14.0));
                     ui.vertical(|ui| {
                         ui.label(
                             egui::RichText::new("快速开始")
@@ -43,9 +40,11 @@ pub fn show(app: &mut GameAcceleratorApp, ui: &mut egui::Ui) {
                                 .color(theme::ACCENT),
                         );
                         ui.label(
-                            egui::RichText::new("1. 在「设置」中配置游戏路径  2. 点击「启动加速」按钮  3. 启动游戏享受流畅体验")
-                                .size(10.0)
-                                .color(theme::TEXT_SECONDARY),
+                            egui::RichText::new(
+                                "设置中选游戏预设 → 启动加速 → 启动游戏；游戏结束后停止并恢复。",
+                            )
+                            .size(10.0)
+                            .color(theme::TEXT_SECONDARY),
                         );
                     });
                 });
@@ -73,9 +72,17 @@ pub fn show(app: &mut GameAcceleratorApp, ui: &mut egui::Ui) {
         );
         widgets::stat_card(
             &mut cols[2],
-            &format!("{:.0}%", stats.gpu_usage),
+            &if stats.gpu_available {
+                format!("{:.0}%", stats.gpu_usage)
+            } else {
+                "—".to_string()
+            },
             "显卡",
-            &format!("{:.0}°C", stats.gpu_temp),
+            &if stats.gpu_temp > 0.0 {
+                format!("{:.0}°C", stats.gpu_temp)
+            } else {
+                "暂无读数".to_string()
+            },
         );
         widgets::stat_card(
             &mut cols[3],
@@ -106,10 +113,15 @@ pub fn show(app: &mut GameAcceleratorApp, ui: &mut egui::Ui) {
                         .color(theme::TEXT_DIM),
                 );
             }
-            for (i, usage) in stats.cpu_usage_per_core.iter().enumerate() {
-                widgets::gauge_row(ui, &format!("核 {}", i), *usage);
-                ui.add_space(5.0);
-            }
+            egui::ScrollArea::vertical()
+                .max_height(280.0)
+                .id_salt("cpu_cores")
+                .show(ui, |ui| {
+                    for (i, usage) in stats.cpu_usage_per_core.iter().enumerate() {
+                        widgets::gauge_row(ui, &format!("线程 {}", i + 1), *usage);
+                        ui.add_space(5.0);
+                    }
+                });
         });
 
         // RIGHT: Memory/GPU + Boost
@@ -135,23 +147,27 @@ pub fn show(app: &mut GameAcceleratorApp, ui: &mut egui::Ui) {
             );
             ui.add_space(8.0);
 
-            let gpu_mem_pct = if stats.gpu_mem_total_mb > 0 {
-                stats.gpu_mem_used_mb as f32 / stats.gpu_mem_total_mb as f32 * 100.0
+            if stats.gpu_available {
+                let gpu_mem_pct =
+                    stats.gpu_mem_used_mb as f32 / stats.gpu_mem_total_mb as f32 * 100.0;
+                widgets::gauge_row(ui, "显存", gpu_mem_pct);
+                ui.label(
+                    egui::RichText::new(format!(
+                        "{} / {} MB",
+                        stats.gpu_mem_used_mb, stats.gpu_mem_total_mb
+                    ))
+                    .size(11.0)
+                    .color(theme::TEXT_DIM),
+                );
+                ui.add_space(8.0);
+                widgets::gauge_row(ui, "GPU", stats.gpu_usage);
             } else {
-                0.0
-            };
-            widgets::gauge_row(ui, "显存", gpu_mem_pct);
-            ui.label(
-                egui::RichText::new(format!(
-                    "{} / {} MB",
-                    stats.gpu_mem_used_mb, stats.gpu_mem_total_mb
-                ))
-                .size(11.0)
-                .color(theme::TEXT_DIM),
-            );
-            ui.add_space(8.0);
-
-            widgets::gauge_row(ui, "GPU", stats.gpu_usage);
+                ui.label(
+                    egui::RichText::new("暂无 GPU 监控读数")
+                        .size(11.0)
+                        .color(theme::TEXT_DIM),
+                );
+            }
         });
 
         right.add_space(12.0);
@@ -169,6 +185,10 @@ pub fn show(app: &mut GameAcceleratorApp, ui: &mut egui::Ui) {
             ui.vertical_centered_justified(|ui| {
                 let label = if app.is_boosting {
                     "⏳  加 速 中…"
+                } else if app.is_restoring {
+                    "⏳  恢 复 中…"
+                } else if app.session_active() {
+                    "✓  加 速 已 开 启"
                 } else {
                     "🚀  启 动 加 速"
                 };
@@ -187,10 +207,28 @@ pub fn show(app: &mut GameAcceleratorApp, ui: &mut egui::Ui) {
                 .min_size(egui::vec2(0.0, 42.0));
 
                 // Disable the button while a boost is running in the background.
-                let clicked = ui.add_enabled(!app.is_boosting, btn).clicked();
+                let clicked = ui
+                    .add_enabled(
+                        !app.is_boosting
+                            && !app.is_restoring
+                            && !app.action_busy
+                            && !app.session_active(),
+                        btn,
+                    )
+                    .clicked();
 
                 if clicked {
                     app.start_boost();
+                }
+                if app.session_active()
+                    && ui
+                        .add_enabled(
+                            !app.is_restoring && !app.action_busy,
+                            theme::secondary_button("停止并恢复原设置"),
+                        )
+                        .clicked()
+                {
+                    app.restore_boost();
                 }
             });
 
@@ -198,19 +236,36 @@ pub fn show(app: &mut GameAcceleratorApp, ui: &mut egui::Ui) {
 
             if app.is_boosting {
                 ui.label(
-                    egui::RichText::new("正在清理后台进程并优化系统，请稍候…")
+                    egui::RichText::new("正在应用所选设置，请稍候…")
                         .size(11.0)
                         .color(theme::TEXT_SECONDARY),
                 );
             } else if let Some(ref result) = app.boost_result {
-                ui.label(
-                    egui::RichText::new(format!(
-                        "✓ 关闭 {} 个进程，释放 {} MB",
-                        result.processes_killed, result.memory_freed_mb
-                    ))
-                    .size(12.0)
-                    .color(theme::SUCCESS),
-                );
+                let summary = if result.errors.is_empty() {
+                    "本次操作完成"
+                } else {
+                    "部分操作未完成"
+                };
+                ui.label(egui::RichText::new(summary).size(12.0).color(
+                    if result.errors.is_empty() {
+                        theme::TEXT_SECONDARY
+                    } else {
+                        theme::WARNING
+                    },
+                ));
+                if result.processes_killed > 0 {
+                    ui.label(format!(
+                        "关闭 {} 个已选择的后台进程",
+                        result.processes_killed
+                    ));
+                }
+                for message in &result.messages {
+                    ui.label(
+                        egui::RichText::new(message)
+                            .size(10.5)
+                            .color(theme::TEXT_SECONDARY),
+                    );
+                }
                 if let Some(ref t) = app.last_boost_time {
                     ui.label(
                         egui::RichText::new(format!("上次加速: {}", t))
@@ -227,7 +282,7 @@ pub fn show(app: &mut GameAcceleratorApp, ui: &mut egui::Ui) {
                 }
             } else {
                 ui.label(
-                    egui::RichText::new("自动清理后台进程并优化系统设置")
+                    egui::RichText::new("默认调整电源和游戏模式；保留游戏、反作弊与语音进程。")
                         .size(11.0)
                         .color(theme::TEXT_SECONDARY),
                 );

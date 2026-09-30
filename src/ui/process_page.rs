@@ -1,7 +1,6 @@
 use super::{theme, widgets};
 use crate::app::{GameAcceleratorApp, ProcessInfo, ProcessSort};
 use crate::core::process_category::{self, Category};
-use crate::core::process_manager;
 
 /// Memory threshold (MB) below which a process is considered "small" and can be
 /// hidden from the advanced list. Tiny processes add noise without being worth
@@ -66,8 +65,17 @@ pub fn show(app: &mut GameAcceleratorApp, ui: &mut egui::Ui) {
     ui.add_space(6.0);
 
     // Auto-load on first visit
-    if app.process_list.is_empty() {
+    if !app.process_list_initialized && !app.process_refresh_busy {
         refresh_process_list(app);
+    }
+    if app.process_refresh_busy {
+        ui.label(
+            egui::RichText::new("正在读取进程列表…")
+                .size(12.0)
+                .color(theme::TEXT_SECONDARY),
+        );
+    } else if app.process_list_initialized && app.process_list.is_empty() {
+        ui.label("暂无进程数据，请点击刷新重试。");
     }
 
     // Status message
@@ -86,13 +94,14 @@ pub fn show(app: &mut GameAcceleratorApp, ui: &mut egui::Ui) {
     } else {
         show_categories(app, ui);
     }
+    show_close_confirmation(app, ui);
 }
 
 // ============ SIMPLE (CATEGORY) VIEW ============
 
 fn show_categories(app: &mut GameAcceleratorApp, ui: &mut egui::Ui) {
     ui.label(
-        egui::RichText::new("按用途分类，点「关闭这类」一键清理。绿色推荐项玩游戏时关掉最划算。")
+        egui::RichText::new("按用途查看资源占用。关闭前会显示程序名单，请先保存工作。")
             .size(12.0)
             .color(theme::TEXT_SECONDARY),
     );
@@ -192,15 +201,19 @@ fn show_categories(app: &mut GameAcceleratorApp, ui: &mut egui::Ui) {
         }
     });
 
-    if let Some((cat, names)) = close_request {
-        let (killed, freed) = process_category::close_category(&names);
-        app.process_status = Some(format!(
-            "✓ 已关闭「{}」{} 个程序，释放 {} MB 内存",
-            cat.display_name(),
-            killed,
-            freed
-        ));
-        refresh_process_list(app);
+    if let Some((_cat, names)) = close_request {
+        app.process_close_request = Some(
+            app.process_list
+                .iter()
+                .filter(|process| !process.is_protected && !process.is_whitelisted)
+                .filter(|process| {
+                    names
+                        .iter()
+                        .any(|name| name.eq_ignore_ascii_case(&process.name))
+                })
+                .cloned()
+                .collect(),
+        );
     }
 }
 
@@ -347,12 +360,14 @@ fn show_advanced(app: &mut GameAcceleratorApp, ui: &mut egui::Ui) {
                             );
                         });
                         sized_cell(ui, total_w * 0.16, |ui| {
-                            if proc.is_protected {
-                                widgets::status_badge(ui, "系统", theme::TEXT_SECONDARY);
+                            if proc.is_protected || proc.is_whitelisted {
+                                widgets::status_badge(ui, "保护", theme::TEXT_SECONDARY);
+                            } else if proc.is_blacklisted {
+                                widgets::status_badge(ui, "清理名单", theme::WARNING);
                             }
                         });
                         sized_cell(ui, total_w * 0.10, |ui| {
-                            if proc.is_protected {
+                            if proc.is_protected || proc.is_whitelisted {
                                 ui.add_enabled(
                                     false,
                                     egui::Button::new(
@@ -379,47 +394,79 @@ fn show_advanced(app: &mut GameAcceleratorApp, ui: &mut egui::Ui) {
         }
     });
 
-    if let Some((pid, name)) = kill_request {
-        match process_manager::kill_process_by_pid(pid, &name) {
-            Ok(_) => {
-                app.process_status = Some(format!("✓ 已结束 {} (PID {})", name, pid));
-                refresh_process_list(app);
-            }
-            Err(e) => {
-                app.process_status = Some(format!("⚠ {}", e));
-            }
-        }
+    if let Some((pid, _name)) = kill_request {
+        app.process_close_request = Some(
+            app.process_list
+                .iter()
+                .filter(|process| {
+                    process.pid == pid && !process.is_protected && !process.is_whitelisted
+                })
+                .cloned()
+                .collect(),
+        );
     }
 }
 
 // ============ HELPERS ============
 
 fn refresh_process_list(app: &mut GameAcceleratorApp) {
-    app.process_list = process_manager::get_process_list()
-        .into_iter()
-        .map(|p| ProcessInfo {
-            is_whitelisted: app.config.whitelist.contains(&p.name),
-            is_blacklisted: app.config.blacklist.contains(&p.name),
-            is_protected: p.is_protected,
-            name: p.name,
-            pid: p.pid,
-            cpu_usage: p.cpu_usage,
-            memory_mb: p.memory_mb,
-        })
-        .collect();
+    app.refresh_processes();
+}
+
+fn show_close_confirmation(app: &mut GameAcceleratorApp, ui: &egui::Ui) {
+    let Some(processes) = app.process_close_request.clone() else {
+        return;
+    };
+    let mut open = true;
+    let mut confirm = false;
+    let mut cancel = false;
+    egui::Window::new("确认关闭进程")
+        .open(&mut open)
+        .collapsible(false)
+        .resizable(false)
+        .show(ui.ctx(), |ui| {
+            ui.label("将强制结束下面的程序，未保存的内容可能丢失：");
+            egui::ScrollArea::vertical()
+                .max_height(200.0)
+                .show(ui, |ui| {
+                    for process in &processes {
+                        ui.label(format!("{} (PID {})", process.name, process.pid));
+                    }
+                });
+            if processes.is_empty() {
+                ui.label("此类别没有可关闭的进程。受保护和白名单程序已保留。");
+            }
+            ui.horizontal(|ui| {
+                confirm = ui
+                    .add_enabled(
+                        !processes.is_empty()
+                            && !app.process_refresh_busy
+                            && !app.is_boosting
+                            && !app.is_restoring
+                            && !app.action_busy,
+                        theme::primary_button("结束这些程序"),
+                    )
+                    .clicked();
+                cancel = ui.add(theme::secondary_button("取消")).clicked();
+            });
+        });
+    if confirm {
+        app.close_processes(processes);
+    }
+    if confirm || cancel || !open {
+        app.process_close_request = None;
+    }
 }
 
 fn sort_processes(list: &mut [ProcessInfo], sort: ProcessSort) {
     match sort {
-        ProcessSort::MemoryDesc => list.sort_by(|a, b| b.memory_mb.cmp(&a.memory_mb)),
+        ProcessSort::MemoryDesc => list.sort_by_key(|process| std::cmp::Reverse(process.memory_mb)),
         ProcessSort::CpuDesc => list.sort_by(|a, b| {
             b.cpu_usage
                 .partial_cmp(&a.cpu_usage)
                 .unwrap_or(std::cmp::Ordering::Equal)
         }),
-        ProcessSort::NameAsc => {
-            list.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
-        }
+        ProcessSort::NameAsc => list.sort_by_key(|process| process.name.to_lowercase()),
     }
 }
 

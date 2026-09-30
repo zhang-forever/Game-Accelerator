@@ -1,7 +1,5 @@
 name: Release
 
-# Build the release exe and publish it to GitHub Releases whenever a version
-# tag (e.g. v1.0.0) is pushed.
 on:
   push:
     tags:
@@ -19,15 +17,66 @@ jobs:
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
+      - name: Check release version
+        shell: pwsh
+        run: |
+          $metadataJson = cargo metadata --locked --no-deps --format-version 1
+          if ($LASTEXITCODE -ne 0) {
+            throw "cargo metadata failed with exit code $LASTEXITCODE."
+          }
+          $metadata = $metadataJson | ConvertFrom-Json
+          $package = $metadata.packages | Where-Object { $_.name -eq 'game-accelerator' }
+          if ($env:GITHUB_REF_NAME -ne "v$($package.version)") {
+            throw "Release tag $env:GITHUB_REF_NAME does not match Cargo version $($package.version)."
+          }
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --locked --all-targets --release -- -W clippy::all
+
+      - name: Test
+        run: cargo test --locked --release
+
       - name: Build release binary
-        run: cargo build --release
+        run: cargo build --locked --release
+
+      - name: Read-only diagnostics smoke test
+        shell: pwsh
+        run: |
+          $reportDir = Join-Path $env:RUNNER_TEMP 'game-accelerator-diagnostics'
+          New-Item -ItemType Directory -Path $reportDir -Force | Out-Null
+          $reportPath = Join-Path $reportDir 'diagnostics.toml'
+          $arguments = '--config-dir "{0}" --diagnose "{1}"' -f $reportDir, $reportPath
+          $process = Start-Process -FilePath '.\target\release\game-accelerator.exe' -ArgumentList $arguments -WindowStyle Hidden -Wait -PassThru
+          if ($process.ExitCode -ne 0) {
+            throw "Diagnostics failed with exit code $($process.ExitCode)."
+          }
+          if (-not (Test-Path -LiteralPath $reportPath -PathType Leaf)) {
+            throw 'Diagnostics did not create the expected report.'
+          }
+          if ((Get-Item -LiteralPath $reportPath).Length -eq 0) {
+            throw 'The diagnostic report is empty.'
+          }
+
+      - name: Package portable app
+        shell: pwsh
+        run: .\scripts\build-local.ps1 -SkipBuild
 
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: target/release/game-accelerator.exe
+          files: |
+            dist/GameAccelerator/game-accelerator.exe
+            dist/GameAccelerator-*-windows-x64.zip
+            dist/GameAccelerator-*-windows-x64.zip.sha256
+            dist/GameAccelerator/SHA256SUMS.txt
+          fail_on_unmatched_files: true
           generate_release_notes: true

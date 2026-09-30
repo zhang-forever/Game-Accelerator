@@ -1,6 +1,6 @@
 [package]
 name = "game-accelerator"
-version = "1.0.0"
+version = "1.1.0"
 edition = "2021"
 description = "Lightweight game booster for Windows"
 authors = ["mi"]
@@ -22,12 +22,19 @@ serde = { version = "1", features = ["derive"] }
 toml = "0.8"
 parking_lot = "0.12"
 dirs-next = "2.0"
+image = { version = "0.25", default-features = false, features = ["png"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = [
     "Win32_Foundation",
+    "Win32_Globalization",
     "Win32_System_Threading",
     "Win32_System_ProcessStatus",
+    "Win32_Security",
+    "Win32_System_Registry",
+    "Win32_System_Services",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
 ] }
 
 [target.'cfg(windows)'.build-dependencies]

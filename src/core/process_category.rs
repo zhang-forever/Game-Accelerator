@@ -55,31 +55,32 @@ impl Category {
             Category::Chat => "微信、QQ、Discord 等。关掉后收不到消息，按需关闭",
             Category::Office => "WPS、Office 等文档软件",
             Category::CloudSync => "OneDrive、百度网盘等后台同步，玩游戏时建议关闭",
-            Category::Updater => "各种软件的自动更新服务，关掉最安全，几乎无影响",
+            Category::Updater => "软件更新程序；关闭前确认没有安装或更新正在进行",
             Category::Media => "音乐播放器、视频软件",
             Category::GameLauncher => "Steam、Epic 等游戏平台（注意：关了可能影响正在玩的游戏）",
-            Category::System => "Windows 系统核心，不能关闭",
+            Category::System => "Windows 系统与安全进程，不能关闭",
             Category::Other => "未分类的其他程序，关闭前请确认你认识它",
         }
     }
 
-    /// Whether it's generally safe to close this whole category in one click.
+    /// Categories eligible for a user-reviewed batch close. Protection and the
+    /// user's whitelist are still checked per process before closing anything.
     pub fn safe_to_close(&self) -> bool {
         matches!(
             self,
-            Category::Browser | Category::CloudSync | Category::Updater | Category::Media
+            Category::Browser | Category::CloudSync | Category::Media
         )
     }
 
     /// Recommended to close for gaming (shown with a highlight).
     pub fn recommended_for_gaming(&self) -> bool {
-        matches!(self, Category::CloudSync | Category::Updater)
+        matches!(self, Category::CloudSync)
     }
 }
 
 /// Classify a process by its executable name.
 pub fn classify(name: &str) -> Category {
-    let n = name.to_lowercase();
+    let n = process_manager::normalize_exe_name(name);
 
     if process_manager::is_protected_system_process(&n) {
         return Category::System;
@@ -185,7 +186,7 @@ pub fn classify(name: &str) -> Category {
         "360tray.exe",
         "360safe.exe",
     ];
-    if UPDATERS.contains(&n.as_str()) || n.contains("update") || n.contains("updater") {
+    if UPDATERS.contains(&n.as_str()) {
         return Category::Updater;
     }
 
@@ -277,33 +278,4 @@ pub fn group_processes(processes: &[ProcessInfo]) -> Vec<CategoryGroup> {
         }
     });
     groups
-}
-
-/// Kill every process whose name is in the given list. Skips protected ones.
-pub fn close_category(process_names: &[String]) -> (u32, u64) {
-    use sysinfo::{ProcessesToUpdate, System};
-    let mut sys = System::new();
-    sys.refresh_processes(ProcessesToUpdate::All);
-
-    let targets: std::collections::HashSet<String> =
-        process_names.iter().map(|n| n.to_lowercase()).collect();
-
-    let mut killed = 0u32;
-    let mut freed_mb = 0u64;
-
-    for (_pid, process) in sys.processes() {
-        let name = process.name().to_string_lossy().to_lowercase();
-        if process_manager::is_protected_system_process(&name) {
-            continue;
-        }
-        if targets.contains(&name) {
-            let mem = process.memory() / 1024 / 1024;
-            if process.kill() {
-                killed += 1;
-                freed_mb += mem;
-            }
-        }
-    }
-
-    (killed, freed_mb)
 }

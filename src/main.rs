@@ -4,28 +4,61 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod app;
+mod cli;
 mod config;
 mod core;
 mod monitor;
+mod smoke_test;
 mod ui;
 
 use app::GameAcceleratorApp;
 
 fn main() {
+    let arguments = match cli::Arguments::parse(std::env::args_os().skip(1)) {
+        Ok(arguments) => arguments,
+        Err(error) => {
+            eprintln!("{}", error);
+            std::process::exit(2);
+        }
+    };
+    if arguments.help {
+        println!("Game Accelerator {}\n--config-dir <directory>\n--diagnose <report.toml> (read-only)\n--smoke-test <directory> (read-only GUI captures)", env!("CARGO_PKG_VERSION"));
+        return;
+    }
+    if let Some(directory) = arguments.config_dir {
+        if let Err(error) = config::settings::set_config_directory(directory) {
+            eprintln!("{}", error);
+            std::process::exit(2);
+        }
+    }
+    if let Some(report) = arguments.diagnose {
+        if let Err(error) = cli::write_diagnostics(&report) {
+            eprintln!("{}", error);
+            std::process::exit(1);
+        }
+        return;
+    }
+    let smoke_directory = arguments.smoke_test;
+    let window_state_path = smoke_directory.as_ref().map_or_else(
+        || config::AppConfig::config_path().with_file_name("window.ron"),
+        |directory| directory.join("window.ron"),
+    );
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([960.0, 640.0])
             .with_min_inner_size([750.0, 500.0]),
+        persistence_path: Some(window_state_path),
+        persist_window: smoke_directory.is_none(),
         ..Default::default()
     };
 
     eframe::run_native(
         "Game Accelerator",
         options,
-        Box::new(|cc| {
+        Box::new(move |cc| {
             setup_chinese_fonts(&cc.egui_ctx);
             apply_dark_theme(&cc.egui_ctx);
-            Ok(Box::new(GameAcceleratorApp::new(cc)))
+            Ok(Box::new(GameAcceleratorApp::new(cc, smoke_directory)))
         }),
     )
     .unwrap_or_else(|e| {
@@ -71,6 +104,7 @@ fn setup_chinese_fonts(ctx: &egui::Context) {
 }
 
 fn apply_dark_theme(ctx: &egui::Context) {
+    ctx.set_theme(egui::Theme::Dark);
     let mut style = (*ctx.style()).clone();
 
     // Rounded corners for everything

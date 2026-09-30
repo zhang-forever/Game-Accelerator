@@ -1,164 +1,159 @@
-use crate::core::{game_mode, gpu_manager, power_manager};
+use crate::core::{disk_optimizer, game_mode, gpu_manager, power_manager};
 use parking_lot::Mutex;
+use serde::Serialize;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use sysinfo::System;
 
-/// Snapshot of system-level metrics collected by the background monitor
-/// thread. The UI reads these cached values every frame to avoid blocking
-/// on expensive external command invocations in the render path.
-#[derive(Clone, Debug, Default)]
+/// CPU and RAM are refreshed separately from expensive external queries.
+#[derive(Clone, Debug, Default, Serialize)]
 pub struct SystemStats {
     pub cpu_usage_total: f32,
     pub cpu_usage_per_core: Vec<f32>,
     pub cpu_name: String,
     pub cpu_cores: usize,
     pub cpu_threads: usize,
-
     pub ram_used_gb: f64,
     pub ram_total_gb: f64,
     pub ram_usage_percent: f32,
-
     pub gpu_name: String,
     pub gpu_driver: String,
     pub gpu_usage: f32,
     pub gpu_temp: f32,
     pub gpu_mem_used_mb: u64,
     pub gpu_mem_total_mb: u64,
-
+    pub gpu_available: bool,
     pub process_count: usize,
-
-    // System optimization toggle states. Each of these requires spawning an
-    // external process (powercfg / reg query / nvidia-smi) to determine, so they
-    // are refreshed on a slower cadence in this background thread instead of in
-    // the UI render path. The UI reads these cached values every frame.
     pub flags_ready: bool,
-    pub power_high_perf: bool,
-    pub game_mode_on: bool,
-    pub hw_gpu_sched_on: bool,
-    pub game_bar_on: bool,
-    pub search_indexer_running: bool,
+    pub power_high_perf: Option<bool>,
+    pub game_mode_on: Option<bool>,
+    pub hw_gpu_sched_on: Option<bool>,
+    pub game_bar_on: Option<bool>,
+    pub search_indexer_running: Option<bool>,
+    pub settings_query_errors: Vec<String>,
 }
 
-/// How often the cheap in-process metrics (CPU, RAM, process count) refresh.
+#[derive(Default)]
+pub struct MonitorControl {
+    stopped: AtomicBool,
+    refresh: AtomicBool,
+}
+
+impl MonitorControl {
+    pub fn stop(&self) {
+        self.stopped.store(true, Ordering::Relaxed);
+    }
+    pub fn request_refresh(&self) {
+        self.refresh.store(true, Ordering::Relaxed);
+    }
+}
+
 const FAST_INTERVAL_MS: u64 = 500;
-/// Expensive metrics that shell out to external commands refresh once every
-/// this many fast ticks (4 * 500ms = ~2s) to keep process spawning off the hot path.
-const SLOW_EVERY_N_TICKS: u64 = 4;
+const GPU_EVERY_N_TICKS: u64 = 4;
+const FLAGS_EVERY_N_TICKS: u64 = 30;
 
-/// Background monitoring loop that refreshes CPU, memory, process count,
-/// and GPU metrics at a fixed interval. Fast (in-process) metrics refresh
-/// every tick; slow (external command) metrics refresh every N ticks to
-/// keep process spawning off the hot path. Runs until the process exits.
-pub fn run_monitor(stats: Arc<Mutex<SystemStats>>) {
+/// Native metrics refresh twice per second; GPU/process queries every two
+/// seconds; system settings every fifteen seconds or after a user action.
+pub fn run_monitor(stats: Arc<Mutex<SystemStats>>, control: Arc<MonitorControl>) {
     let mut sys = System::new();
-    let mut tick: u64 = 0;
+    // CPU usage is a delta; the first counter read alone is not a valid sample.
+    sys.refresh_cpu_all();
+    std::thread::sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL);
+    let mut tick = 0u64;
 
-    loop {
+    while !control.stopped.load(Ordering::Relaxed) {
         sys.refresh_memory();
         sys.refresh_cpu_all();
-        sys.refresh_processes(sysinfo::ProcessesToUpdate::All);
+        let mut next = stats.lock().clone();
+        update_native_stats(&mut next, &sys);
 
-        // ----- Fast, cheap metrics (every tick) -----
-        let cpu_total = sys.global_cpu_usage();
-        let cpu_per_core: Vec<f32> = sys.cpus().iter().map(|c| c.cpu_usage()).collect();
-        let total_gb = sys.total_memory() as f64 / 1024.0 / 1024.0 / 1024.0;
-        let used_gb = sys.used_memory() as f64 / 1024.0 / 1024.0 / 1024.0;
-        let proc_count = sys.processes().len();
-        // Reuse the already-refreshed process table instead of opening a second System.
-        let indexer_running = sys.processes_by_name("SearchIndexer".as_ref()).count() > 0;
-
-        // ----- Slow metrics that shell out (throttled) -----
-        let slow = if tick % SLOW_EVERY_N_TICKS == 0 {
-            Some(query_slow())
-        } else {
-            None
-        };
-
-        {
-            let mut current = stats.lock();
-
-            current.cpu_usage_total = cpu_total;
-            current.cpu_usage_per_core = cpu_per_core;
-            if current.cpu_name.is_empty() {
-                current.cpu_name = sys
-                    .cpus()
-                    .first()
-                    .map(|c| c.brand().to_string())
-                    .unwrap_or_default();
-                current.cpu_cores = sys.physical_core_count().unwrap_or(0);
-                current.cpu_threads = sys.cpus().len();
-            }
-
-            current.ram_total_gb = (total_gb * 100.0).round() / 100.0;
-            current.ram_used_gb = (used_gb * 100.0).round() / 100.0;
-            current.ram_usage_percent = if total_gb > 0.0 {
-                (used_gb / total_gb * 100.0) as f32
-            } else {
-                0.0
-            };
-
-            current.process_count = proc_count;
-            current.search_indexer_running = indexer_running;
-
-            if let Some(s) = slow {
-                current.gpu_name = s.gpu_name;
-                current.gpu_driver = s.gpu_driver;
-                current.gpu_usage = s.gpu_usage;
-                current.gpu_temp = s.gpu_temp;
-                current.gpu_mem_used_mb = s.gpu_mem_used_mb;
-                current.gpu_mem_total_mb = s.gpu_mem_total_mb;
-                current.power_high_perf = s.power_high_perf;
-                current.game_mode_on = s.game_mode_on;
-                current.hw_gpu_sched_on = s.hw_gpu_sched_on;
-                current.game_bar_on = s.game_bar_on;
-                current.flags_ready = true;
-            }
+        if tick.is_multiple_of(GPU_EVERY_N_TICKS) {
+            sys.refresh_processes(sysinfo::ProcessesToUpdate::All);
+            next.process_count = sys.processes().len();
+            update_gpu(&mut next);
         }
 
+        if tick.is_multiple_of(FLAGS_EVERY_N_TICKS)
+            || control.refresh.swap(false, Ordering::Relaxed)
+        {
+            update_flags(&mut next);
+        }
+
+        *stats.lock() = next;
         tick = tick.wrapping_add(1);
         std::thread::sleep(std::time::Duration::from_millis(FAST_INTERVAL_MS));
     }
 }
 
-/// Results of the expensive, external-command-backed queries.
-struct SlowStats {
-    gpu_name: String,
-    gpu_driver: String,
-    gpu_usage: f32,
-    gpu_temp: f32,
-    gpu_mem_used_mb: u64,
-    gpu_mem_total_mb: u64,
-    power_high_perf: bool,
-    game_mode_on: bool,
-    hw_gpu_sched_on: bool,
-    game_bar_on: bool,
+fn update_native_stats(stats: &mut SystemStats, sys: &System) {
+    stats.cpu_usage_total = sys.global_cpu_usage();
+    stats.cpu_usage_per_core = sys.cpus().iter().map(|cpu| cpu.cpu_usage()).collect();
+    if stats.cpu_name.is_empty() {
+        stats.cpu_name = sys
+            .cpus()
+            .first()
+            .map(|cpu| cpu.brand().to_string())
+            .unwrap_or_default();
+        stats.cpu_cores = sys.physical_core_count().unwrap_or(0);
+        stats.cpu_threads = sys.cpus().len();
+    }
+    stats.ram_total_gb = sys.total_memory() as f64 / 1024.0 / 1024.0 / 1024.0;
+    stats.ram_used_gb = sys.used_memory() as f64 / 1024.0 / 1024.0 / 1024.0;
+    stats.ram_usage_percent = if sys.total_memory() > 0 {
+        (sys.used_memory() as f64 / sys.total_memory() as f64 * 100.0) as f32
+    } else {
+        0.0
+    };
 }
 
-/// Run every external command once. Called only on slow ticks, off the UI thread.
-fn query_slow() -> SlowStats {
+fn update_gpu(stats: &mut SystemStats) {
     let gpu = gpu_manager::get_gpu_info().into_iter().next();
-    let (gpu_name, gpu_driver, gpu_usage, gpu_temp, gpu_mem_used_mb, gpu_mem_total_mb) = match gpu {
-        Some(g) => (
-            g.name,
-            g.driver_version,
-            g.usage_percent,
-            g.temperature,
-            g.memory_used_mb,
-            g.memory_total_mb,
-        ),
-        None => (String::new(), String::new(), 0.0, 0.0, 0, 0),
-    };
-
-    SlowStats {
-        gpu_name,
-        gpu_driver,
-        gpu_usage,
-        gpu_temp,
-        gpu_mem_used_mb,
-        gpu_mem_total_mb,
-        power_high_perf: power_manager::is_high_performance(),
-        game_mode_on: game_mode::is_game_mode_enabled(),
-        hw_gpu_sched_on: game_mode::is_hardware_gpu_scheduling_enabled(),
-        game_bar_on: game_mode::is_game_bar_enabled(),
+    stats.gpu_available = gpu.is_some();
+    if let Some(gpu) = gpu {
+        stats.gpu_name = gpu.name;
+        stats.gpu_driver = gpu.driver_version;
+        stats.gpu_usage = gpu.usage_percent;
+        stats.gpu_temp = gpu.temperature;
+        stats.gpu_mem_used_mb = gpu.memory_used_mb;
+        stats.gpu_mem_total_mb = gpu.memory_total_mb;
     }
+}
+
+fn update_flags(stats: &mut SystemStats) {
+    let mut errors = Vec::new();
+    let mut query = |name: &str, result: Result<Option<bool>, String>| match result {
+        Ok(value) => value,
+        Err(error) => {
+            errors.push(format!("{}：{}", name, error));
+            None
+        }
+    };
+    stats.power_high_perf = query(
+        "电源方案",
+        power_manager::get_active_power_plan_guid().map(|guid| {
+            Some(guid == power_manager::HIGH_PERF_GUID || guid == power_manager::ULTIMATE_GUID)
+        }),
+    );
+    stats.game_mode_on = query("游戏模式", game_mode::game_mode_state());
+    stats.hw_gpu_sched_on = query("GPU 调度", game_mode::hardware_gpu_scheduling_state());
+    stats.game_bar_on = query("Game Bar", game_mode::game_bar_state());
+    stats.search_indexer_running = query("Windows Search", disk_optimizer::search_service_state());
+    stats.settings_query_errors = errors;
+    stats.flags_ready = true;
+}
+
+/// A single read-only sample for diagnostics; no configuration writes or boost.
+pub fn collect_diagnostics() -> SystemStats {
+    let mut sys = System::new();
+    sys.refresh_cpu_all();
+    sys.refresh_memory();
+    sys.refresh_processes(sysinfo::ProcessesToUpdate::All);
+    std::thread::sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL);
+    sys.refresh_cpu_all();
+    let mut stats = SystemStats::default();
+    update_native_stats(&mut stats, &sys);
+    stats.process_count = sys.processes().len();
+    update_gpu(&mut stats);
+    update_flags(&mut stats);
+    stats
 }

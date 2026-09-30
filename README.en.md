@@ -1,192 +1,120 @@
-# 🚀 Game Accelerator
+# Game Accelerator
 
-<p align="center">
-  <strong>A lightweight, open-source game booster for Windows, written in Rust. Single-file, zero-dependency, ready to run.</strong>
-</p>
+A Windows 10/11 tool for managing local resources and game settings, built with Rust and egui. The current source version is **1.1.0**, with presets for VALORANT, League of Legends, and CrossFire.
 
-<p align="center">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-green.svg" alt="License: MIT"></a>
-  <a href="#"><img src="https://img.shields.io/badge/platform-Windows%2010%2F11-blue.svg" alt="Platform"></a>
-  <a href="#"><img src="https://img.shields.io/badge/built%20with-Rust-orange.svg" alt="Built with Rust"></a>
-  <a href="https://github.com/zhang-forever/Game-Accelerator/actions/workflows/ci.yml"><img src="https://github.com/zhang-forever/Game-Accelerator/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="https://github.com/zhang-forever/Game-Accelerator/releases"><img src="https://img.shields.io/github/v/release/zhang-forever/Game-Accelerator?include_prereleases" alt="Release"></a>
-  <a href="https://github.com/zhang-forever/Game-Accelerator/releases"><img src="https://img.shields.io/github/downloads/zhang-forever/Game-Accelerator/total" alt="Downloads"></a>
-</p>
+[简体中文](README.md) · [GitHub Releases](https://github.com/zhang-forever/Game-Accelerator/releases) · [MIT](LICENSE)
 
-<p align="center">
-  中文文档：<a href="README.md">README.md</a>
-</p>
+## Try it on your PC
 
----
+If you have a portable package, extract all files into a directory you can write to, then double-click `GameAccelerator\Start.cmd`. Settings live in the adjacent `data` directory. The app starts with standard user privileges; use its administrator button when a specific operation needs UAC elevation.
 
-## ⚠️ Important Safety Notice (Read Before Use)
+To run from this repository:
 
-> **This tool modifies system settings, terminates processes, and adjusts process priorities. Understand the risks before using it.**
+1. Prepare Windows x64, the Rust MSVC toolchain, Visual Studio C++ Build Tools, and the Windows SDK.
+2. Double-click `run-local.cmd` in the repository root. On the first run it builds and creates `dist\GameAccelerator`, then opens the GUI. You can also run it from PowerShell:
 
-- **Anti-cheat / ban risk**: The "memory cleanup" and "boost game priority" features operate on the running game's process. In competitive games with strict anti-cheat systems (e.g. **VALORANT (Vanguard)**, **League of Legends**, **CS2**, **Apex Legends**), such external process manipulation **may be flagged as suspicious and can result in being kicked from a match or even a ban**.
-  - **Recommendation**: For these games, run the boost **before launching the game** (clean memory, close background apps, apply system tweaks), then start the game. **Do not** click boost while an anti-cheat-protected game is already running.
-  - You use this tool at your own risk. The author is not responsible for any bans or account loss.
-- **Administrator privileges**: This tool requires admin rights to modify power plans, registry keys, and system services. A UAC prompt appears automatically when you run it.
-- **System stability**: A protected-process whitelist prevents killing critical system processes. However, some "system optimization" actions (e.g. pausing disk indexing) change system behavior — use them as needed.
+   ```powershell
+   .\run-local.cmd
+   ```
 
----
+3. Choose a game preset in Settings and keep the default options for the first trial. Click Start Boost on the dashboard and keep the app running during your game.
+4. Click “停止并恢复原设置” (Stop and Restore Original Settings) or close the app normally after playing to restore the power plan and Windows Game Mode settings that were active before the session. Check the status messages for the result.
 
-## ✨ Features
+Use the attachments actually available on Releases. The older v1.0.0 EXE does not include the session restoration and defaults described here; a local build produces the 1.1.0 portable package. This workflow does not require an MSI installer.
 
-| Module | What it does | Persists after closing? |
-|:------:|--------------|:--:|
-| 🚀 **One-click Boost** | Clean memory, close background processes, switch to high-performance power, boost game priority | Memory/processes: yes; priority: resets on game restart |
-| ⚙️ **System Optimization** | High-performance power, Windows Game Mode, Hardware-accelerated GPU Scheduling, Xbox Game Bar toggle, pause disk indexing | ✅ Permanent (system settings) |
-| 📋 **Process Management** | Batch-close background apps by category, or fine-grained control in advanced mode; hide small processes (<50MB) | ✅ |
-| 🎮 **GPU Settings** | NVIDIA max-performance mode, disable background telemetry, force games to use the discrete GPU | ✅ |
-| 📊 **Live Monitoring** | CPU (per-core), RAM, GPU usage & temperature, process count | — |
+## Defaults and restoration
 
-### Additional Highlights
+Windows Game Mode and a high-performance power plan are enabled for a boost session by default. **Background process termination is disabled by default.** System-wide process memory trimming and automatic game priority changes are disabled. Presets identify game processes and can be edited for your installation.
 
-- 🖥️ **Cyberpunk Dark Theme**: A sleek, eye-friendly UI with a high-tech aesthetic
-- 🔋 **Smart Power Plan Switching**: Automatically selects Ultimate Performance or High Performance mode
-- 🛡️ **Safety Mechanisms**: Built-in system-critical process whitelist to prevent accidental system crashes
-- 📂 **Process Categorization**: Auto-classifies browsers, chat apps, office tools, cloud sync, and more for one-click batch closure
-- 🎯 **Priority Boosting**: Automatically detects game processes and promotes them to high priority
-- 💾 **Persistent Config**: All settings are saved to a TOML config file and restored on next launch
+| Operation | When it runs | After stopping or closing |
+|-----------|--------------|---------------------------|
+| Session power plan and Game Mode | After manually starting boost | Attempts to restore the previous settings; reports restoration failures |
+| Background process termination | When enabled by the user, or manually on the process page | Closed applications are not restarted; unsaved work cannot be recovered |
+| System-wide memory trimming | Disabled | Does not trim all system processes |
+| Automatic game priority changes | Disabled | Does not change game process priority |
+| Manual changes on System Optimization or GPU Settings | When the user clicks a control | Remain applied, sometimes requiring a restart; excluded from session restoration |
 
----
+Normal stopping or closing runs session restoration. Forced termination, power loss, or a crash may prevent it from completing; check Windows power and Game Mode settings afterward. A high-performance power plan may increase power use, fan noise, and temperature, so choose according to your PC's workload.
 
-## 📥 Installation & Usage
+This tool manages local resources and Windows settings. FPS and online latency effects require measurements on the actual PC and game. The project has no game-vendor anti-cheat compatibility certification. Keep the defaults for the first trial of these competitive games.
 
-### Option 1: Download the installer (recommended)
+## Features and input requirements
 
-1. Go to the [Releases](../../releases) page
-2. Download the latest `GameAccelerator-x.x.x.msi`
-3. Double-click to install, then launch from the Start Menu
-4. Click "Yes" on the UAC prompt on first run
+- The dashboard displays CPU, memory, and process information. NVIDIA GPU utilization, temperature, and VRAM readings require an available `nvidia-smi`; other GPUs may not provide these readings.
+- The process page supports inspection and manual termination of background applications. Save their work first; the protected list does not establish that every third-party application can be closed safely.
+- System Optimization offers manual power, Game Mode, and other settings. The GUI reports unavailable features or insufficient permissions.
+- Game process identification accepts an **EXE filename or full path**, such as `VALORANT-Win64-Shipping.exe`.
+- Windows per-application GPU preferences require the **absolute path of an existing EXE**, such as `D:\Games\Example\game.exe`. A filename alone cannot identify the application for this setting.
+- Windows GPU preferences depend on the GPU, driver, and Windows support. Check the actual result in the GUI. CPU core parking changes, NVIDIA PowerMizer registry changes, and telemetry task disabling have been removed or disabled. The app does not launch games automatically.
 
-### Option 2: Download the portable exe
+## Local build and portable package
 
-1. Download `game-accelerator.exe` from [Releases](../../releases)
-2. Double-click to run (no installation needed)
-
-### How to use
-
-1. **First time**: Toggle the switches you want on the "System Optimization" page (set once, stays applied)
-2. **Before each gaming session**: Open the app → click "Boost" → close the app → launch your game
-3. No need to keep it running in the background; only keep it open if you want live monitoring
-
-> 💡 **Game path**: Just enter the game's EXE name in Settings — no full path needed. For example, VALORANT is `VALORANT-Win64-Shipping.exe`.
-
----
-
-## 🛠️ Building from Source
-
-### Prerequisites
-
-- [Rust toolchain](https://rustup.rs/) (MSVC)
-- Windows 10/11
-- **Recommended**: Visual Studio Build Tools or full Visual Studio
-
-### Quick Start
-
-```bash
-# Clone
+```powershell
 git clone https://github.com/zhang-forever/Game-Accelerator.git
 cd Game-Accelerator
-
-# Debug build
-cargo build
-
-# Release build (size-optimized)
-cargo build --release
-# Output: target/release/game-accelerator.exe
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-local.ps1
 ```
 
-### Building the MSI installer (optional)
+The script runs `cargo build --locked --release`, does not install tools or change system settings, and preserves environment configuration such as `CARGO_HOME`. To package an existing release build:
 
-```bash
-cargo install cargo-wix
-cargo wix
-# Output: target/wix/GameAccelerator-x.x.x.msi
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-local.ps1 -SkipBuild
 ```
 
-### Build Optimization Parameters
+It reads `target\release\game-accelerator.exe` by default, or the equivalent path under `CARGO_TARGET_DIR` when set. Use `-OutputDirectory <directory>` to change the output location; relative paths are resolved from the repository root. Default outputs:
 
-The release build uses these optimization flags to minimize binary size:
-
-| Parameter | Value | Description |
-|-----------|-------|-------------|
-| `opt-level` | `"z"` | Minimize binary size |
-| `lto` | `true` | Link-Time Optimization for further compression |
-| `codegen-units` | `1` | Single compilation unit for better optimization |
-| `strip` | `true` | Remove debug symbols |
-| `panic` | `"abort"` | Use abort instead of unwind to reduce size |
-
----
-
-## 🧱 Tech Stack
-
-| Component | Technology | Description |
-|-----------|------------|-------------|
-| **Language** | Rust 2021 | Safe, high-performance systems programming |
-| **GUI** | [egui](https://github.com/emilk/egui) / eframe 0.29 | Immediate-mode GUI, lightweight and efficient |
-| **System Info** | sysinfo 0.31 | Cross-platform system metrics collection |
-| **Windows API** | windows-sys 0.59 | Low-level Windows API bindings |
-| **Config** | serde + toml | TOML configuration file support |
-| **Concurrency** | parking_lot | High-performance mutex implementation |
-
-### Project Architecture
-
-```
-src/
-├── main.rs           # Entry point, font/theme initialization
-├── app.rs            # Main app struct, page routing
-├── config/           # Configuration management (TOML persistence)
-├── core/             # Core acceleration logic
-│   ├── elevation.rs       # UAC elevation management
-│   ├── memory_cleaner.rs  # Memory cleanup
-│   ├── process_manager.rs # Process management
-│   ├── cpu_optimizer.rs   # CPU optimization
-│   ├── power_manager.rs   # Power plan management
-│   ├── game_mode.rs       # Windows Game Mode
-│   ├── gpu_manager.rs     # GPU settings
-│   ├── disk_optimizer.rs  # Disk optimization
-│   └── process_category.rs # Process classification
-├── monitor/          # System monitoring (background thread)
-└── ui/               # UI modules
-    ├── dashboard.rs       # Dashboard
-    ├── process_page.rs    # Process management page
-    ├── gpu_page.rs        # GPU settings page
-    ├── system_opt_page.rs # System optimization page
-    ├── settings_page.rs   # Settings page
-    ├── theme.rs           # Theme constants
-    └── widgets.rs         # Shared UI widgets
+```text
+dist/
+├── GameAccelerator/
+│   ├── game-accelerator.exe
+│   ├── Start.cmd
+│   ├── Diagnostics.cmd
+│   ├── 使用说明.txt
+│   └── SHA256SUMS.txt
+├── GameAccelerator-1.1.0-windows-x64.zip
+└── GameAccelerator-1.1.0-windows-x64.zip.sha256
 ```
 
----
+Packaging preserves existing directories. The ZIP includes only the distribution files above and excludes runtime `data`, configuration, and diagnostic reports. Use `Get-FileHash -Algorithm SHA256` to compare ZIP and EXE hashes with the supplied checksum files.
 
-## 🤝 Contributing
+Double-clicking the EXE also works and uses the user's configuration directory by default. `Start.cmd` passes `--config-dir "%~dp0data"` to keep portable configuration separate. Automatic tray behavior and automatic boost on startup are not implemented.
 
-Issues and PRs are welcome. Before submitting, please make sure:
+The repository retains `wix/main.wxs` for installer development. MSI builds need an additional WiX environment; the current CI and local delivery workflow validate the EXE and portable ZIP.
 
-```bash
-cargo build
-cargo clippy
+## Diagnostics and troubleshooting
+
+Double-click `Diagnostics.cmd` in the portable directory and wait for completion. Success produces `data\diagnostics.toml`; failures display the exit code. Diagnostics read system state and write the report without starting boost or changing power, registry, service, or process settings. The CLI entry point is `game-accelerator.exe --diagnose <report-file>` and accepts `--config-dir <directory>`; normal GUI use requires no CLI options. The wrapper uses `start /wait` to wait for the GUI-subsystem EXE and read its actual exit code.
+
+| Problem | Action |
+|---------|--------|
+| Cargo, linker, or SDK missing on the first run | Install the Rust MSVC toolchain and Visual Studio C++ Build Tools/Windows SDK, reopen the terminal, and retry; a prebuilt portable package needs no build tools |
+| Cannot write configuration or the report | Move the entire portable directory to a writable location; extract the ZIP before use and avoid protected installation directories |
+| An operation reports insufficient privileges | Check the specific failure, then use the app's administrator button if that operation requires elevation and review the UAC prompt |
+| Game process not found | Launch the game and check its actual EXE; launchers and the running game may have different names |
+| No GPU temperature or utilization | Check the NVIDIA driver and availability of `nvidia-smi`; CPU and memory monitoring remain available |
+| A setting remains changed after stopping | Check restoration errors; manual page actions and closed applications are excluded from automatic restoration |
+
+## Development and verification
+
+```powershell
+cargo fmt --all -- --check
+cargo clippy --locked --all-targets --release -- -W clippy::all
+cargo test --locked --release
+cargo build --locked --release
 ```
 
-### Development Guide
+For a local read-only GUI check, `game-accelerator.exe --smoke-test <directory>` uses the actual egui renderer to save five page PNGs and `report.toml`, for example:
 
-1. Fork the repository
-2. Create a feature branch: `git checkout -b feature/amazing-feature`
-3. Commit your changes: `git commit -m 'Add amazing feature'`
-4. Push to the branch: `git push origin feature/amazing-feature`
-5. Open a Pull Request
+```powershell
+.\target\release\game-accelerator.exe --smoke-test .\ui-smoke
+```
 
----
+CI runs these checks, read-only diagnostics, and portable packaging, then uploads the ZIP and checksum files. The version-tag workflow builds and publishes the EXE, ZIP, and checksums. Editing the workflow alone does not publish a release.
 
-## 📄 License
+Key paths: `src/app.rs` manages the GUI and sessions, `src/config` persists settings, `src/core` wraps system operations, `src/monitor` collects metrics, `src/ui` implements pages, and `scripts/build-local.ps1` produces local deliverables.
+
+When reporting a problem, include the app version, Windows version, failed action, and status message. A diagnostic report can help identify system and permission issues.
+
+## License
 
 [MIT](LICENSE) © 2026 mi
-
----
-
-<p align="center">
-  <sub>Made with ❤️ and Rust</sub>
-</p>

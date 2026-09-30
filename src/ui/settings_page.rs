@@ -35,19 +35,33 @@ pub fn show(app: &mut GameAcceleratorApp, ui: &mut egui::Ui) {
             );
             ui.add_space(12.0);
 
+            ui.horizontal_wrapped(|ui| {
+                for (label, exe) in [
+                    ("无畏契约", "VALORANT-Win64-Shipping.exe"),
+                    ("英雄联盟", "League of Legends.exe"),
+                    ("穿越火线", "crossfire.exe"),
+                ] {
+                    if ui.add(theme::secondary_button(label)).clicked() {
+                        app.config.select_competitive_game(exe);
+                        app.save_config();
+                    }
+                }
+            });
+            ui.add_space(8.0);
+            ui.label(
+                egui::RichText::new(
+                    "竞技游戏预设：保留游戏、反作弊、语音和同步进程，不裁剪内存或提升优先级。",
+                )
+                .size(11.0)
+                .color(theme::TEXT_SECONDARY),
+            );
+            ui.add_space(12.0);
+
             checkbox_with_desc(
                 ui,
                 &mut app.config.kill_background_processes,
                 "关闭后台进程",
-                "自动关闭非必要的后台应用，释放系统资源",
-            );
-            ui.add_space(8.0);
-
-            checkbox_with_desc(
-                ui,
-                &mut app.config.clean_memory,
-                "清理内存",
-                "清理系统缓存和待机内存，提供更多可用 RAM",
+                "仅处理明确加入黑名单的程序；关闭前保存工作，默认不启用",
             );
             ui.add_space(8.0);
 
@@ -55,15 +69,7 @@ pub fn show(app: &mut GameAcceleratorApp, ui: &mut egui::Ui) {
                 ui,
                 &mut app.config.enable_high_perf_power,
                 "切换高性能电源计划",
-                "让 CPU 全速运行，不降频省电（笔记本插电推荐）",
-            );
-            ui.add_space(8.0);
-
-            checkbox_with_desc(
-                ui,
-                &mut app.config.set_high_priority,
-                "提升游戏进程优先级",
-                "让系统优先分配资源给游戏进程",
+                "切换可用的高性能计划；停止加速或正常退出时恢复原计划",
             );
             ui.add_space(8.0);
 
@@ -71,13 +77,13 @@ pub fn show(app: &mut GameAcceleratorApp, ui: &mut egui::Ui) {
                 ui,
                 &mut app.config.enable_game_mode,
                 "启用 Windows Game Mode",
-                "使用 Windows 内置的游戏模式优化",
+                "启用系统内置游戏模式；停止加速或正常退出时恢复原值",
             );
         });
 
         ui.add_space(12.0);
 
-        // Application behavior section
+        // Only expose application behavior that is actually implemented.
         theme::card_frame().show(ui, |ui| {
             ui.set_width(ui.available_width());
 
@@ -95,19 +101,21 @@ pub fn show(app: &mut GameAcceleratorApp, ui: &mut egui::Ui) {
             );
             ui.add_space(12.0);
 
-            checkbox_with_desc(
-                ui,
-                &mut app.config.auto_boost,
-                "启动时自动加速",
-                "打开应用后自动执行游戏加速优化",
+            ui.label(
+                egui::RichText::new(
+                    "启动只进行监控。点击启动加速才执行设置；游戏结束后点击停止并恢复。",
+                )
+                .size(12.0)
+                .color(theme::TEXT_SECONDARY),
             );
             ui.add_space(8.0);
-
-            checkbox_with_desc(
-                ui,
-                &mut app.config.minimize_to_tray,
-                "最小化到系统托盘",
-                "点击最小化时隐藏到托盘而不是任务栏",
+            ui.label(
+                egui::RichText::new(format!(
+                    "配置位置：{}",
+                    crate::config::AppConfig::config_path().display()
+                ))
+                .size(10.5)
+                .color(theme::TEXT_DIM),
             );
         });
 
@@ -162,16 +170,27 @@ pub fn show(app: &mut GameAcceleratorApp, ui: &mut egui::Ui) {
         // Action buttons
         ui.horizontal(|ui| {
             if ui.add(theme::primary_button("💾 保存设置")).clicked() {
-                app.config.save();
+                app.save_config();
             }
 
             ui.add_space(8.0);
 
             if ui.add(theme::secondary_button("🔄 恢复默认")).clicked() {
                 app.config = crate::config::AppConfig::default();
-                app.config.save();
+                app.save_config();
             }
         });
+
+        if let Some(status) = &app.settings_status {
+            ui.add_space(6.0);
+            ui.label(
+                egui::RichText::new(status).color(if status.starts_with('✓') {
+                    theme::SUCCESS
+                } else {
+                    theme::WARNING
+                }),
+            );
+        }
 
         ui.add_space(16.0);
 
@@ -188,7 +207,7 @@ pub fn show(app: &mut GameAcceleratorApp, ui: &mut egui::Ui) {
             ui.add_space(8.0);
 
             ui.label(
-                egui::RichText::new("Game Accelerator v1.0.0")
+                egui::RichText::new(concat!("Game Accelerator v", env!("CARGO_PKG_VERSION")))
                     .size(13.0)
                     .strong()
                     .color(theme::TEXT_SECONDARY),

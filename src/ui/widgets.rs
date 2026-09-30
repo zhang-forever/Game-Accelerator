@@ -179,3 +179,43 @@ pub fn toggle_row(ui: &mut egui::Ui, title: &str, description: &str, on: bool) -
     });
     clicked
 }
+
+/// Missing or unreadable preferences must not look like a measured "off" state.
+pub fn setting_row(
+    ui: &mut egui::Ui,
+    title: &str,
+    description: &str,
+    state: Option<bool>,
+) -> Option<bool> {
+    if let Some(on) = state {
+        return toggle_row(ui, title, description, on).then_some(!on);
+    }
+    let mut choice = None;
+    ui.vertical(|ui| {
+        ui.label(
+            egui::RichText::new(title)
+                .size(14.0)
+                .strong()
+                .color(theme::TEXT_PRIMARY),
+        );
+        ui.label(
+            egui::RichText::new(description)
+                .size(11.0)
+                .color(theme::TEXT_DIM),
+        );
+        ui.horizontal(|ui| {
+            ui.label(
+                egui::RichText::new("系统默认或状态未知")
+                    .size(11.0)
+                    .color(theme::TEXT_SECONDARY),
+            );
+            if ui.small_button("开启").clicked() {
+                choice = Some(true);
+            }
+            if ui.small_button("关闭").clicked() {
+                choice = Some(false);
+            }
+        });
+    });
+    choice
+}

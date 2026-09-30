@@ -1,8 +1,6 @@
 /// Neon green accent color used for primary actions, highlights, and
 /// selection indicators throughout the UI.
 pub const ACCENT: egui::Color32 = egui::Color32::from_rgb(0, 255, 140);
-/// Darker green used for hover states on accent-colored widgets.
-pub const ACCENT_HOVER: egui::Color32 = egui::Color32::from_rgb(0, 230, 126);
 /// Transparent green tint used as background for informational banners.
 pub const ACCENT_BG: egui::Color32 = egui::Color32::from_rgb(0, 45, 28);
 
@@ -55,7 +53,7 @@ pub fn card_frame() -> egui::Frame {
 }
 
 /// Enhanced button style for primary actions
-pub fn primary_button(text: &str) -> egui::Button {
+pub fn primary_button(text: &str) -> egui::Button<'_> {
     egui::Button::new(
         egui::RichText::new(text)
             .size(13.0)
@@ -68,7 +66,7 @@ pub fn primary_button(text: &str) -> egui::Button {
 }
 
 /// Secondary button style
-pub fn secondary_button(text: &str) -> egui::Button {
+pub fn secondary_button(text: &str) -> egui::Button<'_> {
     egui::Button::new(egui::RichText::new(text).size(13.0))
         .fill(egui::Color32::from_rgb(55, 58, 75))
         .rounding(egui::Rounding::same(6.0))

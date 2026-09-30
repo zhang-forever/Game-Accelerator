@@ -1,11 +1,13 @@
 name: CI
 
-# Verify the project builds and passes checks on every push and pull request.
 on:
   push:
     branches: [main, master]
   pull_request:
     branches: [main, master]
+
+permissions:
+  contents: read
 
 jobs:
   build:
@@ -26,10 +28,42 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Clippy
-        run: cargo clippy --release -- -W clippy::all
-
-      - name: Build
-        run: cargo build --release
+        run: cargo clippy --locked --all-targets --release -- -W clippy::all
 
       - name: Test
-        run: cargo test --release
+        run: cargo test --locked --release
+
+      - name: Build release binary
+        run: cargo build --locked --release
+
+      - name: Read-only diagnostics smoke test
+        shell: pwsh
+        run: |
+          $reportDir = Join-Path $env:RUNNER_TEMP 'game-accelerator-diagnostics'
+          New-Item -ItemType Directory -Path $reportDir -Force | Out-Null
+          $reportPath = Join-Path $reportDir 'diagnostics.toml'
+          $arguments = '--config-dir "{0}" --diagnose "{1}"' -f $reportDir, $reportPath
+          $process = Start-Process -FilePath '.\target\release\game-accelerator.exe' -ArgumentList $arguments -WindowStyle Hidden -Wait -PassThru
+          if ($process.ExitCode -ne 0) {
+            throw "Diagnostics failed with exit code $($process.ExitCode)."
+          }
+          if (-not (Test-Path -LiteralPath $reportPath -PathType Leaf)) {
+            throw 'Diagnostics did not create the expected report.'
+          }
+          if ((Get-Item -LiteralPath $reportPath).Length -eq 0) {
+            throw 'The diagnostic report is empty.'
+          }
+
+      - name: Package portable app
+        shell: pwsh
+        run: .\scripts\build-local.ps1 -SkipBuild
+
+      - name: Upload portable package
+        uses: actions/upload-artifact@v4
+        with:
+          name: GameAccelerator-windows-x64
+          path: |
+            dist/GameAccelerator-*-windows-x64.zip
+            dist/GameAccelerator-*-windows-x64.zip.sha256
+            dist/GameAccelerator/SHA256SUMS.txt
+          if-no-files-found: error

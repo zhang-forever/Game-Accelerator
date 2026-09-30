@@ -1,32 +1,74 @@
-/// Decode Windows console command output.
-///
-/// Windows CLI tools (`reg`, `net`, `sc`, etc.) emit text in the OEM code page
-/// (GBK/GB2312 on Chinese systems), not UTF-8. Decoding those bytes as UTF-8
-/// produces replacement characters (U+FFFD), so this helper detects that case
-/// and returns a clean, user-friendly message instead of mojibake.
+/// Decode UTF-8 first, then the OEM code page used by Windows console tools.
 pub fn decode_output(bytes: &[u8]) -> String {
     if bytes.is_empty() {
         return String::new();
     }
-
-    // Try UTF-8 first - clean ASCII output decodes correctly.
-    if let Ok(s) = std::str::from_utf8(bytes) {
-        return s.trim().to_string();
+    if let Ok(text) = std::str::from_utf8(bytes) {
+        return text.trim().to_string();
     }
-
-    // Non-UTF-8 bytes: almost always a localized error in the OEM code page.
-    // We can't decode GBK without a dependency, so surface a clear message.
-    "操作失败，通常是因为权限不足（请用管理员身份运行）".to_string()
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::Globalization::{
+            MultiByteToWideChar, CP_OEMCP, MB_ERR_INVALID_CHARS,
+        };
+        if let Ok(length) = i32::try_from(bytes.len()) {
+            // SAFETY: Input length and output capacity are passed exactly, and
+            // a failed conversion is never interpreted as a permission error.
+            unsafe {
+                let size = MultiByteToWideChar(
+                    CP_OEMCP,
+                    MB_ERR_INVALID_CHARS,
+                    bytes.as_ptr(),
+                    length,
+                    std::ptr::null_mut(),
+                    0,
+                );
+                if size > 0 {
+                    let mut wide = vec![0u16; size as usize];
+                    let written = MultiByteToWideChar(
+                        CP_OEMCP,
+                        MB_ERR_INVALID_CHARS,
+                        bytes.as_ptr(),
+                        length,
+                        wide.as_mut_ptr(),
+                        size,
+                    );
+                    if written > 0 {
+                        return String::from_utf16_lossy(&wide[..written as usize])
+                            .trim()
+                            .to_string();
+                    }
+                }
+            }
+        }
+    }
+    "系统命令返回了无法解码的输出".to_string()
 }
 
-/// Build a friendly error string from a failed command's stderr.
-///
-/// `action` describes what was attempted, e.g. "暂停磁盘索引".
-pub fn friendly_error(action: &str, stderr: &[u8]) -> String {
-    let detail = decode_output(stderr);
+pub fn friendly_error(action: &str, output: &[u8]) -> String {
+    let detail = decode_output(output);
     if detail.is_empty() {
-        format!("{}失败，可能需要管理员权限", action)
+        format!("{action}失败，系统命令没有提供错误详情")
     } else {
-        format!("{}失败：{}", action, detail)
+        format!("{action}失败：{detail}")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn decodes_utf8_without_inventing_permission_errors() {
+        assert_eq!(
+            decode_output("错误：找不到任务\r\n".as_bytes()),
+            "错误：找不到任务"
+        );
+        assert_eq!(decode_output(b"  access denied\r\n"), "access denied");
+        assert_eq!(decode_output(b""), "");
+        assert_eq!(
+            friendly_error("修改设置", b""),
+            "修改设置失败，系统命令没有提供错误详情"
+        );
     }
 }

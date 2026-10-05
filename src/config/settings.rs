@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
+use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::OnceLock;
 
 static CONFIG_DIRECTORY: OnceLock<PathBuf> = OnceLock::new();
@@ -113,7 +115,7 @@ impl AppConfig {
             std::fs::create_dir_all(parent)
                 .map_err(|e| format!("无法创建配置目录（{}）：{}", parent.display(), e))?;
         }
-        std::fs::write(path, content)
+        atomic_write(path, content.as_bytes())
             .map_err(|e| format!("无法保存配置（{}）：{}", path.display(), e))
     }
 
@@ -126,9 +128,114 @@ impl AppConfig {
     }
 }
 
+/// Keep the previous config intact until the complete new file is flushed.
+/// A sibling temporary file keeps the replacement on the same filesystem;
+/// std::fs::rename replaces an existing file on both Windows and Unix.
+fn atomic_write(path: &Path, content: &[u8]) -> std::io::Result<()> {
+    atomic_write_with(path, |file| file.write_all(content))
+}
+
+fn atomic_write_with(
+    path: &Path,
+    write: impl FnOnce(&mut std::fs::File) -> std::io::Result<()>,
+) -> std::io::Result<()> {
+    static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
+    let name = path.file_name().ok_or_else(|| {
+        std::io::Error::new(std::io::ErrorKind::InvalidInput, "配置文件名不能为空")
+    })?;
+    // create_new never truncates a stale temporary file or another instance's
+    // save. Retry collisions, but fail clearly rather than looping forever.
+    let (mut file, temporary) = (0..100)
+        .find_map(|_| {
+            let mut temporary_name = name.to_os_string();
+            temporary_name.push(format!(
+                ".{}.{}.tmp",
+                std::process::id(),
+                NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
+            ));
+            let temporary = path.with_file_name(temporary_name);
+            match std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&temporary)
+            {
+                Ok(file) => Some(Ok((file, temporary))),
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => None,
+                Err(error) => Some(Err(error)),
+            }
+        })
+        .unwrap_or_else(|| {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::AlreadyExists,
+                "无法创建唯一的临时配置文件",
+            ))
+        })?;
+    let result = write(&mut file).and_then(|_| file.sync_all());
+    // Windows replacement must not leave this process's temporary handle open.
+    drop(file);
+    let result = result.and_then(|_| std::fs::rename(&temporary, path));
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temporary);
+    }
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn temp_directory(label: &str) -> PathBuf {
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let path = std::env::temp_dir().join(format!(
+            "game-accelerator-{label}-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::create_dir(&path).unwrap();
+        path
+    }
+
+    #[test]
+    fn atomic_save_creates_and_replaces_config_in_unicode_directory() {
+        let directory = temp_directory("配置保存");
+        let path = directory.join("config.toml");
+        let mut config = AppConfig::default();
+        config.save_to(&path).unwrap();
+        assert_eq!(AppConfig::load_from(&path).unwrap(), config);
+        config.select_competitive_game("League of Legends.exe");
+        config.save_to(&path).unwrap();
+        assert_eq!(AppConfig::load_from(&path).unwrap(), config);
+        assert_eq!(std::fs::read_dir(&directory).unwrap().count(), 1);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn interrupted_write_keeps_previous_config_and_removes_temporary_file() {
+        let directory = temp_directory("failed-write");
+        let path = directory.join("config.toml");
+        let original = b"previous valid config";
+        std::fs::write(&path, original).unwrap();
+        let result = atomic_write_with(&path, |file| {
+            file.write_all(b"incomplete replacement")?;
+            Err(std::io::Error::other("simulated disk failure"))
+        });
+        assert!(result.is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), original);
+        assert_eq!(std::fs::read_dir(&directory).unwrap().count(), 1);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn failed_replacement_preserves_destination_and_cleans_temporary_file() {
+        let directory = temp_directory("failed-replace");
+        let path = directory.join("config.toml");
+        std::fs::create_dir(&path).unwrap();
+        std::fs::write(path.join("keep"), b"original").unwrap();
+        assert!(atomic_write(&path, b"new config").is_err());
+        assert_eq!(std::fs::read(path.join("keep")).unwrap(), b"original");
+        assert_eq!(std::fs::read_dir(&directory).unwrap().count(), 1);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
 
     #[test]
     fn first_run_does_not_manipulate_processes() {

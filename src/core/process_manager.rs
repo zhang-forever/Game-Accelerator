@@ -188,33 +188,52 @@ fn validate_process_identity(expected: &str, current: &str) -> Result<(), String
     Ok(())
 }
 
+/// Batch outcomes preserve successful closures alongside individual failures.
+/// A partial failure must not turn the count of completed work back into zero.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct ProcessCloseReport {
+    pub closed: u32,
+    pub failures: Vec<String>,
+}
+
 /// All batch actions use the same PID/name-checked close path as a single close.
 pub fn kill_background_processes(
     blacklist: &HashSet<String>,
     whitelist: &HashSet<String>,
-) -> Result<u32, String> {
+) -> ProcessCloseReport {
     let mut sys = System::new();
     sys.refresh_processes(ProcessesToUpdate::All);
+    close_matching_processes_with(
+        sys.processes()
+            .iter()
+            .map(|(pid, process)| (pid.as_u32(), process.name().to_string_lossy().into_owned())),
+        blacklist,
+        whitelist,
+        kill_process_by_pid,
+    )
+}
+
+/// Selection and reporting can be tested without opening or terminating a
+/// process. Production still performs the existing identity checks at close.
+fn close_matching_processes_with(
+    processes: impl IntoIterator<Item = (u32, String)>,
+    blacklist: &HashSet<String>,
+    whitelist: &HashSet<String>,
+    mut close: impl FnMut(u32, &str) -> Result<(), String>,
+) -> ProcessCloseReport {
     let blacklist: HashSet<String> = blacklist.iter().map(|n| normalize_exe_name(n)).collect();
     let whitelist: HashSet<String> = whitelist.iter().map(|n| normalize_exe_name(n)).collect();
-    let mut killed = 0;
-    let mut failed = 0;
-    for (pid, process) in sys.processes() {
-        let name = normalize_exe_name(&process.name().to_string_lossy());
+    let mut report = ProcessCloseReport::default();
+    for (pid, process_name) in processes {
+        let name = normalize_exe_name(&process_name);
         if !is_protected_process(&name) && blacklist.contains(&name) && !whitelist.contains(&name) {
-            if kill_process_by_pid(pid.as_u32(), &name).is_ok() {
-                killed += 1;
-            } else {
-                failed += 1;
+            match close(pid, &name) {
+                Ok(()) => report.closed += 1,
+                Err(error) => report.failures.push(format!("{name} (PID {pid})：{error}")),
             }
         }
     }
-    if failed > 0 {
-        return Err(format!(
-            "已关闭 {killed} 个进程；{failed} 个进程未能关闭或身份已改变"
-        ));
-    }
-    Ok(killed)
+    report
 }
 
 /// Resolve the PID again, then verify the image on the same native handle used
@@ -326,6 +345,80 @@ pub struct ProcessInfo {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn names(values: &[&str]) -> HashSet<String> {
+        values.iter().map(|value| (*value).to_string()).collect()
+    }
+
+    #[test]
+    fn partial_batch_retains_closed_count_and_each_failure_with_pid() {
+        let mut attempted = Vec::new();
+        let report = close_matching_processes_with(
+            [(10, "chrome.exe"), (11, "notepad.exe"), (12, "firefox.exe")]
+                .map(|(pid, name)| (pid, name.to_string())),
+            &names(&["chrome.exe", "notepad.exe", "firefox.exe"]),
+            &HashSet::new(),
+            |pid, _| {
+                attempted.push(pid);
+                match pid {
+                    10 => Err("access denied".to_string()),
+                    12 => Err("process exited".to_string()),
+                    _ => Ok(()),
+                }
+            },
+        );
+        assert_eq!(attempted, [10, 11, 12]);
+        assert_eq!(report.closed, 1);
+        assert_eq!(
+            report.failures,
+            [
+                "chrome.exe (PID 10)：access denied",
+                "firefox.exe (PID 12)：process exited",
+            ]
+        );
+    }
+
+    #[test]
+    fn batch_selection_preserves_hard_protection_whitelist_and_normalization() {
+        let mut attempted = Vec::new();
+        let report = close_matching_processes_with(
+            [
+                (10, "CHROME.EXE"),
+                (11, "notepad.exe"),
+                (12, "Discord.exe"),
+                (13, "MsMpEng.exe"),
+                (14, "VALORANT-Win64-Shipping.exe"),
+                (15, "unlisted.exe"),
+            ]
+            .map(|(pid, name)| (pid, name.to_string())),
+            &names(&[
+                r"C:\Browser\chrome.exe",
+                "NOTEPAD.EXE",
+                "Discord.exe",
+                "MsMpEng.exe",
+                "VALORANT-Win64-Shipping.exe",
+            ]),
+            &names(&[r"C:\Windows\notepad.exe"]),
+            |pid, name| {
+                attempted.push((pid, name.to_string()));
+                Ok(())
+            },
+        );
+        assert_eq!(attempted, [(10, "chrome.exe".to_string())]);
+        assert_eq!(report.closed, 1);
+        assert!(report.failures.is_empty());
+    }
+
+    #[test]
+    fn empty_blacklist_never_attempts_to_close_processes() {
+        let report = close_matching_processes_with(
+            [(10, "chrome.exe".to_string())],
+            &HashSet::new(),
+            &HashSet::new(),
+            |_, _| panic!("an empty blacklist cannot authorize a close"),
+        );
+        assert_eq!(report, ProcessCloseReport::default());
+    }
 
     #[test]
     fn names_accept_paths_case_and_spaces() {

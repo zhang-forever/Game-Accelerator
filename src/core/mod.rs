@@ -22,6 +22,22 @@ pub struct BoostResult {
     pub errors: Vec<String>,
 }
 
+impl BoostResult {
+    fn record_process_closures(&mut self, report: process_manager::ProcessCloseReport) {
+        self.processes_killed = report.closed;
+        self.messages.push(format!(
+            "已关闭 {} 个允许关闭的后台进程；受保护进程保持运行",
+            report.closed
+        ));
+        self.errors.extend(
+            report
+                .failures
+                .into_iter()
+                .map(|error| format!("关闭后台进程：{error}")),
+        );
+    }
+}
+
 #[derive(Debug)]
 struct PowerChange {
     original: String,
@@ -236,15 +252,10 @@ pub fn run_boost(
         if let Some(game) = game_process {
             whitelist.insert(process_manager::normalize_exe_name(game));
         }
-        match process_manager::kill_background_processes(&config.blacklist, &whitelist) {
-            Ok(count) => {
-                result.processes_killed = count;
-                result.messages.push(format!(
-                    "已关闭 {count} 个允许关闭的后台进程；受保护进程保持运行"
-                ));
-            }
-            Err(error) => result.errors.push(format!("关闭后台进程：{error}")),
-        }
+        result.record_process_closures(process_manager::kill_background_processes(
+            &config.blacklist,
+            &whitelist,
+        ));
     }
     if config.clean_memory {
         result
@@ -338,6 +349,22 @@ mod tests {
             }
             Ok(())
         }
+    }
+
+    #[test]
+    fn partial_process_report_preserves_count_and_failure_details() {
+        let mut result = BoostResult::default();
+        result.record_process_closures(process_manager::ProcessCloseReport {
+            closed: 2,
+            failures: vec!["browser.exe (PID 12)：access denied".to_string()],
+        });
+        assert_eq!(result.processes_killed, 2);
+        assert_eq!(result.messages.len(), 1);
+        assert!(result.messages[0].contains("已关闭 2 个"));
+        assert_eq!(
+            result.errors,
+            ["关闭后台进程：browser.exe (PID 12)：access denied"]
+        );
     }
 
     #[test]

@@ -175,14 +175,26 @@ impl GameAcceleratorApp {
         let done = self.boost_channel.lock().take();
         match done {
             Some(BoostUpdate::Started(result, session)) => {
+                // A completed session remains active even when the requested
+                // settings were already enabled. Otherwise another click can
+                // repeat irreversible process closures. A fully failed start
+                // with nothing to restore may be retried immediately.
+                let active = session.has_changes()
+                    || result.errors.is_empty()
+                    || result.processes_killed > 0;
                 self.boost_result = Some(result);
-                self.boost_session = Some(session);
+                self.boost_session = active.then_some(session);
+                self.sysopt_status = None;
                 self.last_boost_time = Some(format_clock_time());
                 self.is_boosting = false;
                 self.monitor_control.request_refresh();
             }
             Some(BoostUpdate::Restored(session, errors)) => {
-                self.boost_session = Some(session);
+                self.boost_session = if errors.is_empty() {
+                    None
+                } else {
+                    Some(session)
+                };
                 self.is_restoring = false;
                 self.sysopt_status = Some(if errors.is_empty() {
                     "✓ 加速会话已结束".to_string()
@@ -197,9 +209,7 @@ impl GameAcceleratorApp {
     }
 
     pub fn session_active(&self) -> bool {
-        self.boost_session
-            .as_ref()
-            .is_some_and(BoostSession::has_changes)
+        self.boost_session.is_some()
     }
 
     pub fn restore_boost(&mut self) {
@@ -677,6 +687,89 @@ mod tests {
     }
 
     #[test]
+    fn successful_noop_session_stays_active_and_rejects_duplicate_start() {
+        let mut app = idle_app();
+        *app.boost_channel.lock() = Some(BoostUpdate::Started(
+            BoostResult::default(),
+            BoostSession::default(),
+        ));
+        app.poll_boost();
+        assert!(
+            app.session_active(),
+            "a completed session need not own changed settings"
+        );
+        app.start_boost();
+        assert!(
+            !app.is_boosting,
+            "a duplicate click must not rerun process closures"
+        );
+        assert!(app.boost_channel.lock().is_none());
+    }
+
+    #[test]
+    fn successful_stop_releases_session() {
+        let mut app = idle_app();
+        app.boost_session = Some(BoostSession::default());
+        app.is_restoring = true;
+        *app.boost_channel.lock() =
+            Some(BoostUpdate::Restored(BoostSession::default(), Vec::new()));
+        app.poll_boost();
+        assert!(app.boost_session.is_none());
+        assert!(!app.session_active());
+        assert!(!app.is_restoring);
+        assert!(app.sysopt_status.as_deref().unwrap().starts_with('✓'));
+    }
+
+    #[test]
+    fn new_session_clears_previous_stop_status() {
+        let mut app = idle_app();
+        app.sysopt_status = Some("✓ 加速会话已结束".to_string());
+        *app.boost_channel.lock() = Some(BoostUpdate::Started(
+            BoostResult::default(),
+            BoostSession::default(),
+        ));
+        app.poll_boost();
+        assert!(app.session_active());
+        assert!(app.sysopt_status.is_none());
+    }
+
+    #[test]
+    fn completely_failed_start_leaves_no_active_session() {
+        let mut app = idle_app();
+        *app.boost_channel.lock() = Some(BoostUpdate::Started(
+            BoostResult {
+                errors: vec!["power unavailable".to_string()],
+                ..Default::default()
+            },
+            BoostSession::default(),
+        ));
+        app.poll_boost();
+        assert!(app.boost_session.is_none());
+        assert!(!app.session_active());
+        assert!(!app.is_boosting);
+        assert_eq!(
+            app.boost_result.as_ref().unwrap().errors,
+            ["power unavailable"]
+        );
+    }
+
+    #[test]
+    fn partial_process_success_keeps_session_active_without_reversible_changes() {
+        let mut app = idle_app();
+        *app.boost_channel.lock() = Some(BoostUpdate::Started(
+            BoostResult {
+                processes_killed: 1,
+                errors: vec!["one process could not close".to_string()],
+                ..Default::default()
+            },
+            BoostSession::default(),
+        ));
+        app.poll_boost();
+        assert!(app.session_active());
+        assert_eq!(app.boost_result.as_ref().unwrap().processes_killed, 1);
+    }
+
+    #[test]
     fn smoke_capture_keeps_pixels_but_blocks_interactive_events() {
         use eframe::App;
         let mut app = idle_app();
@@ -736,6 +829,7 @@ mod tests {
         assert!(!app.close_after_work);
         assert!(!app.is_restoring);
         assert!(app.boost_session.is_some());
+        assert!(app.session_active());
         assert!(app
             .sysopt_status
             .as_deref()

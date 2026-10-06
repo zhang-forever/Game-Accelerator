@@ -9,6 +9,7 @@ const TABLE_ROW_HEIGHT: f32 = 40.0;
 const TABLE_ROW_PADDING: f32 = 8.0;
 
 pub fn show(app: &mut GameAcceleratorApp, ui: &mut egui::Ui) {
+    app.refresh_process_membership();
     widgets::page_header(
         ui,
         "进程管理",
@@ -182,7 +183,7 @@ fn show_categories(app: &mut GameAcceleratorApp, ui: &mut egui::Ui) {
         app.process_close_request = Some(
             app.process_list
                 .iter()
-                .filter(|process| !process.is_protected && !process.is_whitelisted)
+                .filter(|process| process.can_close(&app.config))
                 .filter(|process| {
                     names
                         .iter()
@@ -383,17 +384,12 @@ fn show_advanced(app: &mut GameAcceleratorApp, ui: &mut egui::Ui) {
                                         .rounding(egui::Rounding::same(10.0))
                                         .min_size(egui::vec2(62.0, 30.0));
                                         if ui
-                                            .add_enabled(
-                                                !process.is_protected && !process.is_whitelisted,
-                                                button,
-                                            )
-                                            .on_hover_text(
-                                                if process.is_protected || process.is_whitelisted {
-                                                    "受保护和白名单进程不会被关闭。"
-                                                } else {
-                                                    "查看确认窗口后结束此进程。"
-                                                },
-                                            )
+                                            .add_enabled(process.can_close(&app.config), button)
+                                            .on_hover_text(if !process.can_close(&app.config) {
+                                                "受保护和白名单进程不会被关闭。"
+                                            } else {
+                                                "查看确认窗口后结束此进程。"
+                                            })
                                             .clicked()
                                         {
                                             kill_request =
@@ -422,9 +418,7 @@ fn show_advanced(app: &mut GameAcceleratorApp, ui: &mut egui::Ui) {
         app.process_close_request = Some(
             app.process_list
                 .iter()
-                .filter(|process| {
-                    process.pid == pid && !process.is_protected && !process.is_whitelisted
-                })
+                .filter(|process| process.pid == pid && process.can_close(&app.config))
                 .cloned()
                 .collect(),
         );
@@ -436,9 +430,10 @@ fn refresh_process_list(app: &mut GameAcceleratorApp) {
 }
 
 fn show_close_confirmation(app: &mut GameAcceleratorApp, ui: &egui::Ui) {
-    let Some(processes) = app.process_close_request.clone() else {
+    let Some(mut processes) = app.process_close_request.clone() else {
         return;
     };
+    processes.retain(|process| process.can_close(&app.config));
     let mut open = true;
     let mut confirm = false;
     let mut cancel = false;

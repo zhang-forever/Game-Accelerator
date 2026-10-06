@@ -147,6 +147,45 @@ pub fn normalize_exe_name(name: &str) -> String {
         .to_lowercase()
 }
 
+/// User lists accept the same basename/path spelling as automatic boost.
+pub fn matches_process_name(name: &str, names: &HashSet<String>) -> bool {
+    let name = normalize_exe_name(name);
+    names
+        .iter()
+        .any(|candidate| normalize_exe_name(candidate) == name)
+}
+
+/// Manual requests are checked against the configuration at confirmation time,
+/// rather than trusting protection badges copied when the dialog was opened.
+pub fn close_selected_processes(
+    processes: impl IntoIterator<Item = (u32, String)>,
+    whitelist: &HashSet<String>,
+) -> ProcessCloseReport {
+    close_selected_processes_with(processes, whitelist, kill_process_by_pid)
+}
+
+fn close_selected_processes_with(
+    processes: impl IntoIterator<Item = (u32, String)>,
+    whitelist: &HashSet<String>,
+    mut close: impl FnMut(u32, &str) -> Result<(), String>,
+) -> ProcessCloseReport {
+    let mut report = ProcessCloseReport::default();
+    for (pid, name) in processes {
+        let result = if pid == 0 || pid == std::process::id() || is_protected_process(&name) {
+            Err("受保护进程，已保留".to_string())
+        } else if matches_process_name(&name, whitelist) {
+            Err("白名单进程，已保留".to_string())
+        } else {
+            close(pid, &name)
+        };
+        match result {
+            Ok(()) => report.closed += 1,
+            Err(error) => report.failures.push(format!("{name} (PID {pid})：{error}")),
+        }
+    }
+    report
+}
+
 fn listed(name: &str, names: &[&str]) -> bool {
     let normalized = normalize_exe_name(name);
     names.iter().any(|candidate| {
@@ -348,6 +387,55 @@ mod tests {
 
     fn names(values: &[&str]) -> HashSet<String> {
         values.iter().map(|value| (*value).to_string()).collect()
+    }
+
+    #[test]
+    fn manual_close_rechecks_changed_whitelist_and_preserves_partial_results() {
+        let pending = [(10, "CHROME.EXE"), (11, "notepad.exe"), (12, "firefox.exe")]
+            .map(|(pid, name)| (pid, name.to_string()));
+        // The dialog was opened before the whitelist changed.
+        let whitelist = names(&[r#" "C:\Browser\chrome.exe" "#]);
+        let mut attempted = Vec::new();
+        let report = close_selected_processes_with(pending, &whitelist, |pid, _| {
+            attempted.push(pid);
+            if pid == 12 {
+                Err("access denied".to_string())
+            } else {
+                Ok(())
+            }
+        });
+        assert_eq!(attempted, [11, 12]);
+        assert_eq!(report.closed, 1);
+        assert_eq!(report.failures.len(), 2);
+        assert!(report.failures[0].contains("白名单"));
+        assert!(report.failures[1].contains("access denied"));
+    }
+
+    #[test]
+    fn manual_close_never_calls_native_path_for_protected_processes() {
+        let report = close_selected_processes_with(
+            [
+                (0, "unknown.exe"),
+                (std::process::id(), "renamed.exe"),
+                (10, "MsMpEng.exe"),
+                (11, "Discord.exe"),
+                (12, "VALORANT.exe"),
+            ]
+            .map(|(pid, name)| (pid, name.to_string())),
+            &HashSet::new(),
+            |_, _| panic!("protected requests must not reach the native close path"),
+        );
+        assert_eq!(report.closed, 0);
+        assert_eq!(report.failures.len(), 5);
+    }
+
+    #[test]
+    fn user_list_matching_uses_basename_semantics_without_prefix_matches() {
+        let list = names(&[r#" "C:\Program Files\My App.EXE" "#, "/apps/Other.exe"]);
+        assert!(matches_process_name("my app.exe", &list));
+        assert!(matches_process_name("OTHER.EXE", &list));
+        assert!(!matches_process_name("my app.exe.bak", &list));
+        assert!(!matches_process_name("app.exe", &list));
     }
 
     #[test]

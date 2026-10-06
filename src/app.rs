@@ -89,6 +89,22 @@ pub struct ProcessInfo {
     pub is_protected: bool,
 }
 
+impl ProcessInfo {
+    fn refresh_membership(&mut self, config: &AppConfig) {
+        use crate::core::process_manager::matches_process_name;
+        self.is_whitelisted = matches_process_name(&self.name, &config.whitelist);
+        self.is_blacklisted = matches_process_name(&self.name, &config.blacklist);
+    }
+
+    pub fn can_close(&self, config: &AppConfig) -> bool {
+        !self.is_protected
+            && self.pid != 0
+            && self.pid != std::process::id()
+            && !crate::core::process_manager::is_protected_process(&self.name)
+            && !crate::core::process_manager::matches_process_name(&self.name, &config.whitelist)
+    }
+}
+
 impl GameAcceleratorApp {
     /// Create a new application instance. Loads persisted configuration,
     /// spawns the background system monitor thread, and checks for
@@ -295,16 +311,18 @@ impl GameAcceleratorApp {
         }
         self.process_refresh_busy = true;
         let channel = self.process_channel.clone();
+        let whitelist = self.config.whitelist.clone();
+        // Recheck the live configuration even if a caller supplies stale rows.
+        let processes: Vec<_> = processes
+            .into_iter()
+            .filter(|process| process.can_close(&self.config))
+            .map(|process| (process.pid, process.name))
+            .collect();
         std::thread::spawn(move || {
-            let mut killed = 0;
-            let mut failures = Vec::new();
-            for process in processes {
-                match crate::core::process_manager::kill_process_by_pid(process.pid, &process.name)
-                {
-                    Ok(()) => killed += 1,
-                    Err(error) => failures.push(error),
-                }
-            }
+            let report =
+                crate::core::process_manager::close_selected_processes(processes, &whitelist);
+            let killed = report.closed;
+            let failures = report.failures;
             let status = if failures.is_empty() {
                 format!("✓ 已结束 {} 个已选择的进程", killed)
             } else {
@@ -317,26 +335,31 @@ impl GameAcceleratorApp {
         });
     }
 
+    pub fn refresh_process_membership(&mut self) {
+        for process in &mut self.process_list {
+            process.refresh_membership(&self.config);
+        }
+    }
+
     fn poll_processes(&mut self) {
         let done = self.process_channel.lock().take();
         if let Some((processes, status)) = done {
             self.process_list = processes
                 .into_iter()
-                .map(|process| {
-                    let contains = |names: &std::collections::HashSet<String>| {
-                        names
-                            .iter()
-                            .any(|name| name.eq_ignore_ascii_case(&process.name))
-                    };
-                    ProcessInfo {
-                        is_whitelisted: contains(&self.config.whitelist),
-                        is_blacklisted: contains(&self.config.blacklist),
-                        is_protected: process.is_protected,
-                        name: process.name,
-                        pid: process.pid,
-                        cpu_usage: process.cpu_usage,
-                        memory_mb: process.memory_mb,
-                    }
+                .map(|process| ProcessInfo {
+                    is_whitelisted: crate::core::process_manager::matches_process_name(
+                        &process.name,
+                        &self.config.whitelist,
+                    ),
+                    is_blacklisted: crate::core::process_manager::matches_process_name(
+                        &process.name,
+                        &self.config.blacklist,
+                    ),
+                    is_protected: process.is_protected,
+                    name: process.name,
+                    pid: process.pid,
+                    cpu_usage: process.cpu_usage,
+                    memory_mb: process.memory_mb,
                 })
                 .collect();
             if status.is_some() {
@@ -687,6 +710,28 @@ mod tests {
     }
 
     #[test]
+    fn process_poll_matches_full_path_user_lists() {
+        let mut app = idle_app();
+        app.config
+            .whitelist
+            .insert(r#" "C:\Browser\CHROME.EXE" "#.to_string());
+        app.config.blacklist.insert("/apps/chrome.exe".to_string());
+        *app.process_channel.lock() = Some((
+            vec![crate::core::process_manager::ProcessInfo {
+                name: "chrome.exe".to_string(),
+                pid: 10,
+                cpu_usage: 0.0,
+                memory_mb: 100,
+                is_protected: false,
+            }],
+            None,
+        ));
+        app.poll_processes();
+        assert!(app.process_list[0].is_whitelisted);
+        assert!(app.process_list[0].is_blacklisted);
+    }
+
+    #[test]
     fn successful_noop_session_stays_active_and_rejects_duplicate_start() {
         let mut app = idle_app();
         *app.boost_channel.lock() = Some(BoostUpdate::Started(
@@ -835,5 +880,58 @@ mod tests {
             .as_deref()
             .unwrap()
             .contains("access denied"));
+    }
+}
+
+#[cfg(test)]
+mod process_policy_tests {
+    use super::*;
+
+    fn row() -> ProcessInfo {
+        ProcessInfo {
+            name: "chrome.exe".to_string(),
+            pid: 10,
+            cpu_usage: 0.0,
+            memory_mb: 100,
+            is_whitelisted: false,
+            is_blacklisted: false,
+            is_protected: false,
+        }
+    }
+
+    #[test]
+    fn stale_dialog_and_badges_follow_current_config_without_process_refresh() {
+        let mut config = AppConfig::default();
+        config.whitelist.clear();
+        let mut process = row();
+        assert!(process.can_close(&config));
+        config
+            .whitelist
+            .insert(r#" "C:\Browser\CHROME.EXE" "#.to_string());
+        config.blacklist.insert("/apps/chrome.exe".to_string());
+        assert!(!process.can_close(&config));
+        process.refresh_membership(&config);
+        assert!(process.is_whitelisted && process.is_blacklisted);
+        config.whitelist.clear();
+        process.refresh_membership(&config);
+        assert!(!process.is_whitelisted);
+        assert!(process.can_close(&config));
+    }
+
+    #[test]
+    fn reset_defaults_protects_pending_rows_and_hard_protection_survives_edits() {
+        let mut config = AppConfig::default();
+        config.whitelist.clear();
+        let mut process = row();
+        process.name = "OneDrive.exe".to_string();
+        assert!(process.can_close(&config));
+        process.refresh_membership(&AppConfig::default());
+        assert!(process.is_whitelisted);
+        assert!(!process.can_close(&AppConfig::default()));
+        process.name = "MsMpEng.exe".to_string();
+        assert!(!process.can_close(&config));
+        process.name = "chrome.exe".to_string();
+        process.is_protected = true;
+        assert!(!process.can_close(&config));
     }
 }
